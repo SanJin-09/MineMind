@@ -4,7 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,7 +16,7 @@ public final class AiController {
         thread.setDaemon(true);
         return thread;
     });
-    private static final List<AiMessage> HISTORY = new ArrayList<>();
+    private static final AiConversationHistory HISTORY = new AiConversationHistory();
     private static final AtomicBoolean REQUESTING = new AtomicBoolean(false);
     private static final AtomicInteger SESSION = new AtomicInteger();
 
@@ -93,27 +92,46 @@ public final class AiController {
         }
 
         int session = SESSION.get();
-        AiProviderSettings settings = AiConfigStore.currentSettings();
-        List<AiMessage> requestMessages = snapshotWithUser(cleanedPrompt);
+        AiProviderSettings settings;
+        List<AiMessage> requestMessages;
+        try {
+            settings = AiConfigStore.currentSettings();
+            requestMessages = HISTORY.snapshotWithUser(cleanedPrompt);
+        } catch (RuntimeException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地配置或运行状态异常");
+            return;
+        }
         AiChat.player(cleanedPrompt);
+        AiChat.info("正在请求：" + settings.displayName() + " / " + settings.model());
 
-        EXECUTOR.execute(() -> {
-            try {
-                String answer = OpenAiChatClient.complete(settings, requestMessages);
-                Minecraft.getInstance().execute(() -> finishSuccess(session, cleanedPrompt, answer));
-            } catch (AiException exception) {
-                Minecraft.getInstance().execute(() -> finishError(session, exception));
-            } catch (RuntimeException exception) {
-                Minecraft.getInstance().execute(() -> finishError(session, new AiException(AiErrorType.LOCAL)));
-            }
-        });
+        try {
+            EXECUTOR.execute(() -> {
+                try {
+                    String answer = OpenAiChatClient.complete(settings, requestMessages);
+                    Minecraft.getInstance().execute(() -> finishSuccess(session, cleanedPrompt, answer));
+                } catch (AiException exception) {
+                    Minecraft.getInstance().execute(() -> finishError(session, exception));
+                } catch (RuntimeException exception) {
+                    Minecraft.getInstance().execute(() -> finishError(session, new AiException(AiErrorType.LOCAL)));
+                }
+            });
+        } catch (RuntimeException exception) {
+            finishError(session, new AiException(AiErrorType.LOCAL));
+        }
     }
 
     public static void clearHistory() {
-        synchronized (HISTORY) {
-            HISTORY.clear();
-        }
-        AiChat.info("已清空当前对话上下文");
+        int count = HISTORY.clear();
+        AiChat.info("已清空当前对话上下文，共 " + count + " 条");
+    }
+
+    public static List<String> statusLines() {
+        return AiConfigStore.statusLines(isSingleplayerWorld(), REQUESTING.get(), HISTORY.size());
+    }
+
+    public static void trimHistoryToMax() {
+        HISTORY.trimTo(AiConfigStore.maxHistoryMessages());
     }
 
     public static boolean isSingleplayerWorld() {
@@ -121,47 +139,33 @@ public final class AiController {
         return minecraft.level != null && minecraft.hasSingleplayerServer();
     }
 
-    private static List<AiMessage> snapshotWithUser(String prompt) {
-        synchronized (HISTORY) {
-            List<AiMessage> messages = new ArrayList<>(HISTORY);
-            messages.add(new AiMessage("user", prompt));
-            return messages;
-        }
-    }
-
     private static void finishSuccess(int session, String prompt, String answer) {
         if (session != SESSION.get()) {
-            REQUESTING.set(false);
             return;
         }
-        synchronized (HISTORY) {
-            HISTORY.add(new AiMessage("user", prompt));
-            HISTORY.add(new AiMessage("assistant", answer));
-            trimHistory();
+        try {
+            HISTORY.addExchange(prompt, answer, AiConfigStore.maxHistoryMessages());
+            AiChat.assistant(answer);
+            AiChat.info("请求完成");
+        } finally {
+            REQUESTING.set(false);
         }
-        REQUESTING.set(false);
-        AiChat.assistant(answer);
     }
 
     private static void finishError(int session, AiException exception) {
-        if (session == SESSION.get()) {
-            AiChat.error(exception.getMessage());
+        if (session != SESSION.get()) {
+            return;
         }
-        REQUESTING.set(false);
-    }
-
-    private static void trimHistory() {
-        int max = Math.max(2, AiConfigStore.maxHistoryMessages());
-        while (HISTORY.size() > max) {
-            HISTORY.remove(0);
+        try {
+            AiChat.error(exception.getMessage());
+        } finally {
+            REQUESTING.set(false);
         }
     }
 
     private static void resetSession() {
         SESSION.incrementAndGet();
         REQUESTING.set(false);
-        synchronized (HISTORY) {
-            HISTORY.clear();
-        }
+        HISTORY.clear();
     }
 }

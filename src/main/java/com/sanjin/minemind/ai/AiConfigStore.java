@@ -8,8 +8,6 @@ import net.minecraft.client.Minecraft;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +38,10 @@ public final class AiConfigStore {
         return data().maxHistoryMessages;
     }
 
+    public static synchronized int timeoutSeconds() {
+        return data().timeoutSeconds;
+    }
+
     public static synchronized AiProviderSettings currentSettings() {
         ConfigData data = data();
         ProviderConfig provider = provider(data.currentProvider);
@@ -54,7 +56,7 @@ public final class AiConfigStore {
     }
 
     public static synchronized void setProviderModel(String providerId, String model) {
-        String normalized = normalizeProvider(providerId);
+        String normalized = AiConfigRules.normalizeProviderId(providerId);
         if (model == null || model.isBlank()) {
             throw new ConfigException("模型 ID 不能为空");
         }
@@ -69,22 +71,31 @@ public final class AiConfigStore {
         if (apiKey == null || apiKey.isBlank()) {
             throw new ConfigException("API Key 不能为空");
         }
-        provider(normalizeProvider(providerId)).apiKey = apiKey.trim();
+        provider(AiConfigRules.normalizeProviderId(providerId)).apiKey = apiKey.trim();
         save();
     }
 
     public static synchronized void removeApiKey(String providerId) {
-        provider(normalizeProvider(providerId)).apiKey = "";
+        provider(AiConfigRules.normalizeProviderId(providerId)).apiKey = "";
         save();
     }
 
     public static synchronized void setBaseUrl(String providerId, String baseUrl) {
-        String normalized = normalizeProvider(providerId);
-        String cleaned = stripTrailingSlash(baseUrl == null ? "" : baseUrl.trim());
-        if (!isHttpUrl(cleaned)) {
-            throw new ConfigException("API Base URL 必须是 http 或 https 地址");
-        }
+        String normalized = AiConfigRules.normalizeProviderId(providerId);
+        String cleaned = AiConfigRules.requireBaseUrl(baseUrl);
         provider(normalized).baseUrl = cleaned;
+        save();
+    }
+
+    public static synchronized void setTimeoutSeconds(int timeoutSeconds) {
+        AiConfigRules.requireTimeoutSeconds(timeoutSeconds);
+        data().timeoutSeconds = timeoutSeconds;
+        save();
+    }
+
+    public static synchronized void setMaxHistoryMessages(int maxHistoryMessages) {
+        AiConfigRules.requireMaxHistoryMessages(maxHistoryMessages);
+        data().maxHistoryMessages = maxHistoryMessages;
         save();
     }
 
@@ -92,21 +103,35 @@ public final class AiConfigStore {
         return new ArrayList<>(data().providers.keySet());
     }
 
-    public static synchronized List<String> statusLines() {
+    public static synchronized List<String> statusLines(boolean singleplayerWorld, boolean requesting, int historyMessages) {
         ConfigData data = data();
         List<String> lines = new ArrayList<>();
         if (loadFailed) {
             lines.add("本地配置文件损坏或无法读取，已使用默认配置");
         }
         ProviderConfig current = provider(data.currentProvider);
-        lines.add("当前模型：" + current.displayName + " / " + emptyText(current.model, "未设置"));
+        lines.add("AI 模式：" + (data.aiMode ? "已开启" : "已关闭"));
+        lines.add("单人世界：" + (singleplayerWorld ? "是" : "否"));
+        lines.add("请求状态：" + (requesting ? "处理中" : "空闲"));
+        lines.add("当前服务商：" + current.displayName + " (" + data.currentProvider + ")");
+        lines.add("当前模型：" + emptyText(current.model, "未设置"));
         lines.add("当前 Base URL：" + emptyText(current.baseUrl, "未设置"));
+        lines.add("请求超时：" + data.timeoutSeconds + " 秒");
+        lines.add("最大上下文：" + data.maxHistoryMessages + " 条");
+        lines.add("当前上下文：" + historyMessages + " 条");
+        lines.addAll(keyStatusLines());
+        return lines;
+    }
+
+    public static synchronized List<String> keyStatusLines() {
+        ConfigData data = data();
+        List<String> lines = new ArrayList<>();
         for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
             ProviderConfig provider = entry.getValue();
             String key = provider.apiKey == null || provider.apiKey.isBlank()
                     ? "未配置 Key"
                     : "已配置 Key，尾号 " + mask(provider.apiKey);
-            lines.add(provider.displayName + ": " + key);
+            lines.add(provider.displayName + " (" + entry.getKey() + "): " + key);
         }
         return lines;
     }
@@ -123,14 +148,18 @@ public final class AiConfigStore {
     private static ConfigData data() {
         if (config == null) {
             config = load();
+            if (ensureDefaults(config)) {
+                save(config);
+            }
+        } else {
+            ensureDefaults(config);
         }
-        ensureDefaults(config);
         return config;
     }
 
     private static ProviderConfig provider(String providerId) {
         ConfigData data = data();
-        String normalized = normalizeProvider(providerId);
+        String normalized = AiConfigRules.normalizeProviderId(providerId);
         ProviderConfig provider = data.providers.get(normalized);
         if (provider == null) {
             provider = ProviderConfig.custom(normalized);
@@ -142,6 +171,7 @@ public final class AiConfigStore {
     private static ConfigData load() {
         Path path = path();
         if (!Files.exists(path)) {
+            loadFailed = false;
             return ConfigData.defaults();
         }
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -155,11 +185,15 @@ public final class AiConfigStore {
     }
 
     private static void save() {
+        save(data());
+    }
+
+    private static void save(ConfigData data) {
         Path path = path();
         try {
             Files.createDirectories(path.getParent());
             try (Writer writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-                GSON.toJson(data(), writer);
+                GSON.toJson(data, writer);
             }
         } catch (IOException exception) {
             throw new ConfigException("本地配置文件保存失败");
@@ -170,54 +204,43 @@ public final class AiConfigStore {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("config").resolve("minemind.json");
     }
 
-    private static void ensureDefaults(ConfigData data) {
+    private static boolean ensureDefaults(ConfigData data) {
+        boolean changed = false;
         if (data.currentProvider == null || data.currentProvider.isBlank()) {
-            data.currentProvider = "openai";
+            data.currentProvider = AiConfigRules.OPENAI_PROVIDER_ID;
+            changed = true;
         } else {
-            data.currentProvider = normalizeProvider(data.currentProvider);
+            String normalized = AiConfigRules.normalizeProviderId(data.currentProvider);
+            changed |= !normalized.equals(data.currentProvider);
+            data.currentProvider = normalized;
         }
         if (data.providers == null) {
             data.providers = new LinkedHashMap<>();
+            changed = true;
         }
-        data.providers.putIfAbsent("openai", ProviderConfig.openAi());
-        if (data.timeoutSeconds <= 0) {
-            data.timeoutSeconds = 45;
+        if (!data.providers.containsKey(AiConfigRules.OPENAI_PROVIDER_ID)) {
+            data.providers.put(AiConfigRules.OPENAI_PROVIDER_ID, ProviderConfig.openAi());
+            changed = true;
         }
-        if (data.maxHistoryMessages <= 0) {
-            data.maxHistoryMessages = 20;
+        int sanitizedTimeout = AiConfigRules.sanitizeTimeoutSeconds(data.timeoutSeconds);
+        if (sanitizedTimeout != data.timeoutSeconds) {
+            data.timeoutSeconds = sanitizedTimeout;
+            changed = true;
+        }
+        int sanitizedHistory = AiConfigRules.sanitizeMaxHistoryMessages(data.maxHistoryMessages);
+        if (sanitizedHistory != data.maxHistoryMessages) {
+            data.maxHistoryMessages = sanitizedHistory;
+            changed = true;
         }
         for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
             if (entry.getValue() == null) {
                 entry.setValue(ProviderConfig.custom(entry.getKey()));
+                changed = true;
             } else {
-                entry.getValue().ensure(entry.getKey());
+                changed |= entry.getValue().ensure(entry.getKey());
             }
         }
-    }
-
-    private static String normalizeProvider(String providerId) {
-        if (providerId == null || providerId.isBlank()) {
-            throw new ConfigException("服务商不能为空");
-        }
-        return providerId.trim().toLowerCase(Locale.ROOT);
-    }
-
-    private static String stripTrailingSlash(String value) {
-        String result = value;
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        return result;
-    }
-
-    private static boolean isHttpUrl(String value) {
-        try {
-            URI uri = new URI(value);
-            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
-                    && uri.getHost() != null;
-        } catch (URISyntaxException exception) {
-            return false;
-        }
+        return changed;
     }
 
     private static String emptyText(String value, String fallback) {
@@ -225,16 +248,16 @@ public final class AiConfigStore {
     }
 
     public static class ConfigData {
-        public String currentProvider = "openai";
-        public int timeoutSeconds = 45;
-        public int maxHistoryMessages = 20;
+        public String currentProvider = AiConfigRules.OPENAI_PROVIDER_ID;
+        public int timeoutSeconds = AiConfigRules.DEFAULT_TIMEOUT_SECONDS;
+        public int maxHistoryMessages = AiConfigRules.DEFAULT_MAX_HISTORY_MESSAGES;
         public boolean streaming = false;
         public boolean aiMode = false;
         public Map<String, ProviderConfig> providers = new LinkedHashMap<>();
 
         static ConfigData defaults() {
             ConfigData data = new ConfigData();
-            data.providers.put("openai", ProviderConfig.openAi());
+            data.providers.put(AiConfigRules.OPENAI_PROVIDER_ID, ProviderConfig.openAi());
             return data;
         }
     }
@@ -247,9 +270,9 @@ public final class AiConfigStore {
 
         static ProviderConfig openAi() {
             ProviderConfig provider = new ProviderConfig();
-            provider.displayName = "OpenAI";
-            provider.model = "gpt-4.1";
-            provider.baseUrl = "https://api.openai.com/v1";
+            provider.displayName = AiConfigRules.OPENAI_DISPLAY_NAME;
+            provider.model = AiConfigRules.OPENAI_DEFAULT_MODEL;
+            provider.baseUrl = AiConfigRules.OPENAI_DEFAULT_BASE_URL;
             return provider;
         }
 
@@ -261,24 +284,31 @@ public final class AiConfigStore {
             return provider;
         }
 
-        void ensure(String providerId) {
+        boolean ensure(String providerId) {
+            boolean changed = false;
             if (displayName == null || displayName.isBlank()) {
                 displayName = prettyName(providerId);
+                changed = true;
             }
             if (model == null) {
                 model = "";
+                changed = true;
             }
-            if (baseUrl == null) {
-                baseUrl = "";
+            String repairedBaseUrl = AiConfigRules.repairBaseUrl(providerId, baseUrl);
+            if (!repairedBaseUrl.equals(baseUrl)) {
+                baseUrl = repairedBaseUrl;
+                changed = true;
             }
             if (apiKey == null) {
                 apiKey = "";
+                changed = true;
             }
+            return changed;
         }
 
         private static String prettyName(String providerId) {
-            if ("openai".equals(providerId)) {
-                return "OpenAI";
+            if (AiConfigRules.OPENAI_PROVIDER_ID.equals(providerId)) {
+                return AiConfigRules.OPENAI_DISPLAY_NAME;
             }
             return providerId.substring(0, 1).toUpperCase(Locale.ROOT) + providerId.substring(1);
         }

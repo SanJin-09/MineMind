@@ -67,7 +67,7 @@ public final class OpenAiChatClient {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw classify(response.statusCode());
+            throw new AiException(AiHttpStatusClassifier.classify(response.statusCode()));
         }
         return parseContent(response.body());
     }
@@ -82,19 +82,6 @@ public final class OpenAiChatClient {
         if (settings.baseUrl() == null || settings.baseUrl().isBlank()) {
             throw new AiException(AiErrorType.LOCAL, "当前服务商没有配置 API Base URL");
         }
-    }
-
-    private static AiException classify(int statusCode) {
-        return switch (statusCode) {
-            case 400, 413, 422 -> new AiException(AiErrorType.REQUEST);
-            case 401, 403 -> new AiException(AiErrorType.AUTH);
-            case 404 -> new AiException(AiErrorType.MODEL);
-            case 408, 504 -> new AiException(AiErrorType.TIMEOUT);
-            case 429 -> new AiException(AiErrorType.QUOTA);
-            default -> statusCode >= 500
-                    ? new AiException(AiErrorType.SERVICE)
-                    : new AiException(AiErrorType.REQUEST);
-        };
     }
 
     private static String parseContent(String body) throws AiException {

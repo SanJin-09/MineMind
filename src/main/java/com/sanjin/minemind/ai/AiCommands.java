@@ -1,6 +1,7 @@
 package com.sanjin.minemind.ai;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.minecraft.commands.CommandSourceStack;
@@ -31,6 +32,7 @@ public final class AiCommands {
                                 .then(argument("model", StringArgumentType.greedyString())
                                         .executes(AiCommands::setModel))))
                 .then(literal("key")
+                        .then(literal("list").executes(AiCommands::listKeys))
                         .then(literal("remove")
                                 .then(argument("provider", StringArgumentType.word())
                                         .suggests((context, builder) -> SharedSuggestionProvider.suggest(AiConfigStore.providerIds(), builder))
@@ -40,10 +42,19 @@ public final class AiCommands {
                                 .then(argument("key", StringArgumentType.greedyString())
                                         .executes(AiCommands::setKey))))
                 .then(literal("base")
+                        .executes(AiCommands::base)
                         .then(argument("provider", StringArgumentType.word())
                                 .suggests((context, builder) -> SharedSuggestionProvider.suggest(AiConfigStore.providerIds(), builder))
                                 .then(argument("url", StringArgumentType.greedyString())
                                         .executes(AiCommands::setBaseUrl))))
+                .then(literal("timeout")
+                        .executes(AiCommands::timeout)
+                        .then(argument("seconds", IntegerArgumentType.integer())
+                                .executes(AiCommands::setTimeout)))
+                .then(literal("max-history")
+                        .executes(AiCommands::maxHistory)
+                        .then(argument("count", IntegerArgumentType.integer())
+                                .executes(AiCommands::setMaxHistory)))
                 .then(literal("status").executes(AiCommands::status))
                 .then(literal("clear").executes(AiCommands::clear)));
     }
@@ -55,8 +66,12 @@ public final class AiCommands {
         AiChat.info("/ai model - 查看当前模型");
         AiChat.info("/ai model <provider> <id> - 切换模型");
         AiChat.info("/ai key <provider> <key> - 设置 API Key");
+        AiChat.info("/ai key list - 查看 API Key 状态");
         AiChat.info("/ai key remove <provider> - 删除 API Key");
+        AiChat.info("/ai base - 查看当前 API Base URL");
         AiChat.info("/ai base <provider> <url> - 设置 API Base URL");
+        AiChat.info("/ai timeout [秒] - 查看或设置请求超时");
+        AiChat.info("/ai max-history [数量] - 查看或设置上下文条数");
         AiChat.info("/ai status - 查看连接状态");
         AiChat.info("/ai clear - 清空当前对话上下文");
         return 1;
@@ -120,6 +135,20 @@ public final class AiCommands {
         }
     }
 
+    private static int listKeys(CommandContext<CommandSourceStack> context) {
+        for (String line : AiConfigStore.keyStatusLines()) {
+            AiChat.info(line);
+        }
+        return 1;
+    }
+
+    private static int base(CommandContext<CommandSourceStack> context) {
+        AiProviderSettings settings = AiConfigStore.currentSettings();
+        String baseUrl = settings.baseUrl() == null || settings.baseUrl().isBlank() ? "未设置" : settings.baseUrl();
+        AiChat.info("当前 Base URL：" + baseUrl);
+        return 1;
+    }
+
     private static int setBaseUrl(CommandContext<CommandSourceStack> context) {
         String provider = StringArgumentType.getString(context, "provider");
         String url = StringArgumentType.getString(context, "url");
@@ -133,8 +162,43 @@ public final class AiCommands {
         }
     }
 
+    private static int timeout(CommandContext<CommandSourceStack> context) {
+        AiChat.info("当前请求超时：" + AiConfigStore.timeoutSeconds() + " 秒");
+        return 1;
+    }
+
+    private static int setTimeout(CommandContext<CommandSourceStack> context) {
+        int seconds = IntegerArgumentType.getInteger(context, "seconds");
+        try {
+            AiConfigStore.setTimeoutSeconds(seconds);
+            AiChat.info("请求超时已设置为：" + seconds + " 秒");
+            return 1;
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return 0;
+        }
+    }
+
+    private static int maxHistory(CommandContext<CommandSourceStack> context) {
+        AiChat.info("当前最大上下文：" + AiConfigStore.maxHistoryMessages() + " 条");
+        return 1;
+    }
+
+    private static int setMaxHistory(CommandContext<CommandSourceStack> context) {
+        int count = IntegerArgumentType.getInteger(context, "count");
+        try {
+            AiConfigStore.setMaxHistoryMessages(count);
+            AiController.trimHistoryToMax();
+            AiChat.info("最大上下文已设置为：" + count + " 条");
+            return 1;
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return 0;
+        }
+    }
+
     private static int status(CommandContext<CommandSourceStack> context) {
-        for (String line : AiConfigStore.statusLines()) {
+        for (String line : AiController.statusLines()) {
             AiChat.info(line);
         }
         return 1;
