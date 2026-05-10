@@ -10,6 +10,12 @@ import java.util.Optional;
 public final class AiProviderRegistry {
     public static final String OPENAI_PROVIDER_ID = "openai";
     public static final String DEEPSEEK_PROVIDER_ID = "deepseek";
+    public static final String QWEN_PROVIDER_ID = "qwen";
+    public static final String KIMI_PROVIDER_ID = "kimi";
+    public static final String GLM_PROVIDER_ID = "glm";
+    public static final String SEED_PROVIDER_ID = "seed";
+    public static final String GROK_PROVIDER_ID = "grok";
+    public static final String GEMINI_PROVIDER_ID = "gemini";
 
     private static final Map<String, AiProvider> PROVIDERS = new LinkedHashMap<>();
 
@@ -23,6 +29,36 @@ public final class AiProviderRegistry {
                 DEEPSEEK_PROVIDER_ID,
                 "DeepSeek",
                 "https://api.deepseek.com"
+        ));
+        register(new OpenAiCompatibleProvider(
+                QWEN_PROVIDER_ID,
+                "Qwen",
+                "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ));
+        register(new OpenAiCompatibleProvider(
+                KIMI_PROVIDER_ID,
+                "KiMi",
+                "https://api.moonshot.ai/v1"
+        ));
+        register(new OpenAiCompatibleProvider(
+                GLM_PROVIDER_ID,
+                "GLM",
+                "https://open.bigmodel.cn/api/paas/v4"
+        ));
+        register(new OpenAiCompatibleProvider(
+                SEED_PROVIDER_ID,
+                "Seed",
+                "https://ark.cn-beijing.volces.com/api/v3"
+        ));
+        register(new OpenAiCompatibleProvider(
+                GROK_PROVIDER_ID,
+                "Grok",
+                "https://api.x.ai/v1"
+        ));
+        register(new GeminiProvider(
+                GEMINI_PROVIDER_ID,
+                "Gemini",
+                "https://generativelanguage.googleapis.com/v1beta"
         ));
     }
 

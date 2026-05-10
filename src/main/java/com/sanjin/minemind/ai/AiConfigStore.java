@@ -149,6 +149,18 @@ public final class AiConfigStore {
         return lines;
     }
 
+    public static synchronized List<String> configuredKeyStatusLines() {
+        ConfigData data = data();
+        List<String> lines = new ArrayList<>();
+        for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
+            ProviderConfig provider = entry.getValue();
+            if (provider.apiKey != null && !provider.apiKey.isBlank()) {
+                lines.add(provider.displayName + " (" + entry.getKey() + "): 已配置 Key，尾号 " + mask(provider.apiKey));
+            }
+        }
+        return lines;
+    }
+
     public static String mask(String apiKey) {
         if (apiKey == null || apiKey.isBlank()) {
             return "****";

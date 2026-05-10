@@ -39,6 +39,14 @@ public final class AiModelCatalog {
         }
     }
 
+    public static void cacheModelIds(String providerId, List<String> modelIds) {
+        try {
+            String normalized = AiConfigRules.normalizeProviderId(providerId);
+            CACHE.put(normalized, List.copyOf(modelIds));
+        } catch (AiConfigStore.ConfigException ignored) {
+        }
+    }
+
     public static List<String> fetchModelIds(AiProviderSettings settings) throws AiException {
         validate(settings);
 
@@ -133,12 +141,18 @@ public final class AiModelCatalog {
                 "transcribe",
                 "speech",
                 "moderation",
+                "omni",
                 "sora",
                 "video",
+                "visual",
                 "search-preview",
                 "computer-use",
                 "babbage",
-                "davinci"
+                "davinci",
+                "-vl",
+                "vl-",
+                "qvq",
+                "glm-4v"
         )) {
             return false;
         }

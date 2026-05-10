@@ -73,7 +73,7 @@ public final class AiCommands {
         AiChat.info("/ai model <provider> - 获取可选型号列表");
         AiChat.info("/ai model <provider> <id> - 从可选列表切换模型");
         AiChat.info("/ai key <provider> <key> - 设置 API Key");
-        AiChat.info("/ai key list - 查看 API Key 状态");
+        AiChat.info("/ai key list - 查看已配置 API Key 列表");
         AiChat.info("/ai key remove <provider> - 删除 API Key");
         AiChat.info("/ai base - 查看当前 API Base URL");
         AiChat.info("/ai base <provider> <url> - 设置 API Base URL");
@@ -122,6 +122,7 @@ public final class AiCommands {
         try {
             AiConfigStore.setApiKey(provider, key);
             AiChat.info(provider + ": 已配置 Key，尾号 " + AiConfigStore.mask(key));
+            AiController.refreshModelsAfterKeySet(provider);
             return 1;
         } catch (AiConfigStore.ConfigException exception) {
             AiChat.error(exception.getMessage());
@@ -142,7 +143,8 @@ public final class AiCommands {
     }
 
     private static int listKeys(CommandContext<CommandSourceStack> context) {
-        for (String line : AiConfigStore.keyStatusLines()) {
+        AiChat.infoHighlight("============ MineMind API 列表 =============");
+        for (String line : AiConfigStore.configuredKeyStatusLines()) {
             AiChat.info(line);
         }
         return 1;

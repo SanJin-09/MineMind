@@ -80,7 +80,7 @@ dependencies {
 tasks.register('runAiSelfTest', JavaExec) {
     group = 'verification'
     description = 'Runs MineMind lightweight self tests.'
-    classpath = sourceSets.test.runtimeClasspath
+    classpath = sourceSets.test.runtimeClasspath + sourceSets.main.compileClasspath
     mainClass = 'com.sanjin.minemind.ai.AiSelfTest'
 }
 

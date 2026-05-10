@@ -21,6 +21,7 @@ public final class AiSelfTest {
     private static void testProviderRules() {
         assertEquals("openai", AiConfigRules.normalizeProviderId("OpenAI"), "openai normalize");
         assertEquals("deepseek", AiConfigRules.normalizeProviderId("DeepSeek"), "deepseek normalize");
+        assertEquals("gemini", AiConfigRules.normalizeProviderId(" Gemini "), "gemini normalize");
 
         AiProvider openai = AiProviderRegistry.provider("openai");
         assertEquals("openai", openai.id(), "openai provider id");
@@ -32,9 +33,46 @@ public final class AiSelfTest {
         assertEquals("DeepSeek", deepseek.displayName(), "deepseek display name");
         assertEquals("https://api.deepseek.com", deepseek.defaultBaseUrl(), "deepseek base url");
 
+        AiProvider qwen = AiProviderRegistry.provider("qwen");
+        assertEquals("qwen", qwen.id(), "qwen provider id");
+        assertEquals("Qwen", qwen.displayName(), "qwen display name");
+        assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1", qwen.defaultBaseUrl(), "qwen base url");
+
+        AiProvider kimi = AiProviderRegistry.provider("kimi");
+        assertEquals("kimi", kimi.id(), "kimi provider id");
+        assertEquals("KiMi", kimi.displayName(), "kimi display name");
+        assertEquals("https://api.moonshot.ai/v1", kimi.defaultBaseUrl(), "kimi base url");
+
+        AiProvider glm = AiProviderRegistry.provider("glm");
+        assertEquals("glm", glm.id(), "glm provider id");
+        assertEquals("GLM", glm.displayName(), "glm display name");
+        assertEquals("https://open.bigmodel.cn/api/paas/v4", glm.defaultBaseUrl(), "glm base url");
+
+        AiProvider seed = AiProviderRegistry.provider("seed");
+        assertEquals("seed", seed.id(), "seed provider id");
+        assertEquals("Seed", seed.displayName(), "seed display name");
+        assertEquals("https://ark.cn-beijing.volces.com/api/v3", seed.defaultBaseUrl(), "seed base url");
+
+        AiProvider grok = AiProviderRegistry.provider("grok");
+        assertEquals("grok", grok.id(), "grok provider id");
+        assertEquals("Grok", grok.displayName(), "grok display name");
+        assertEquals("https://api.x.ai/v1", grok.defaultBaseUrl(), "grok base url");
+
+        AiProvider gemini = AiProviderRegistry.provider("gemini");
+        assertEquals("gemini", gemini.id(), "gemini provider id");
+        assertEquals("Gemini", gemini.displayName(), "gemini display name");
+        assertEquals("https://generativelanguage.googleapis.com/v1beta", gemini.defaultBaseUrl(), "gemini base url");
+
         List<String> suggestions = AiProviderRegistry.providerSuggestions(List.of("custom"));
         assertContains(suggestions, "openai", "provider suggestions openai");
         assertContains(suggestions, "deepseek", "provider suggestions deepseek");
+        assertContains(suggestions, "qwen", "provider suggestions qwen");
+        assertContains(suggestions, "kimi", "provider suggestions kimi");
+        assertContains(suggestions, "glm", "provider suggestions glm");
+        assertContains(suggestions, "seed", "provider suggestions seed");
+        assertContains(suggestions, "grok", "provider suggestions grok");
+        assertContains(suggestions, "gemini", "provider suggestions gemini");
+        assertNotContains(suggestions, "chatgpt", "provider suggestions no chatgpt alias");
         assertNotContains(suggestions, "custom", "provider suggestions only built-in providers");
     }
 
@@ -59,6 +97,12 @@ public final class AiSelfTest {
         assertFalse(AiConfigRules.isHttpUrl("ftp://example.com"), "reject ftp");
         assertEquals("https://api.openai.com/v1", AiConfigRules.repairBaseUrl("openai", "bad-url"), "openai base repair");
         assertEquals("https://api.deepseek.com", AiConfigRules.repairBaseUrl("deepseek", "bad-url"), "deepseek base repair");
+        assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1", AiConfigRules.repairBaseUrl("qwen", "bad-url"), "qwen base repair");
+        assertEquals("https://api.moonshot.ai/v1", AiConfigRules.repairBaseUrl("kimi", "bad-url"), "kimi base repair");
+        assertEquals("https://open.bigmodel.cn/api/paas/v4", AiConfigRules.repairBaseUrl("glm", "bad-url"), "glm base repair");
+        assertEquals("https://ark.cn-beijing.volces.com/api/v3", AiConfigRules.repairBaseUrl("seed", "bad-url"), "seed base repair");
+        assertEquals("https://api.x.ai/v1", AiConfigRules.repairBaseUrl("grok", "bad-url"), "grok base repair");
+        assertEquals("https://generativelanguage.googleapis.com/v1beta", AiConfigRules.repairBaseUrl("gemini", "bad-url"), "gemini base repair");
         assertEquals("", AiConfigRules.repairBaseUrl("custom", "bad-url"), "custom base repair");
     }
 
@@ -78,10 +122,16 @@ public final class AiSelfTest {
         String quotaBody = "{\"error\":{\"code\":\"insufficient_quota\",\"message\":\"You exceeded your current quota\"}}";
         String balanceBody = "{\"error\":{\"message\":\"账户余额不足\"}}";
         String modelBody = "{\"error\":{\"code\":\"model_not_found\",\"message\":\"The model does not exist\"}}";
+        String geminiAuthBody = "{\"error\":{\"status\":\"PERMISSION_DENIED\",\"message\":\"API key not valid\"}}";
+        String geminiQuotaBody = "{\"error\":{\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"Quota exceeded\"}}";
+        String geminiModelBody = "{\"error\":{\"status\":\"NOT_FOUND\",\"message\":\"Requested entity was not found\"}}";
 
         assertEquals(AiErrorType.QUOTA, AiHttpStatusClassifier.classify(404, quotaBody), "quota body wins over 404");
         assertEquals(AiErrorType.QUOTA, AiHttpStatusClassifier.classify(400, balanceBody), "balance body wins over 400");
         assertEquals(AiErrorType.MODEL, AiHttpStatusClassifier.classify(400, modelBody), "model body wins over 400");
+        assertEquals(AiErrorType.AUTH, AiHttpStatusClassifier.classify(400, geminiAuthBody), "gemini auth body wins over 400");
+        assertEquals(AiErrorType.QUOTA, AiHttpStatusClassifier.classify(400, geminiQuotaBody), "gemini quota body wins over 400");
+        assertEquals(AiErrorType.MODEL, AiHttpStatusClassifier.classify(400, geminiModelBody), "gemini model body wins over 400");
     }
 
     private static void testModelCatalogFiltering() {
@@ -89,6 +139,12 @@ public final class AiSelfTest {
         assertTrue(AiModelCatalog.isTextChatModelId("ft:gpt-4o:org:name:id"), "fine tuned gpt text model");
         assertTrue(AiModelCatalog.isTextChatModelId("deepseek-chat"), "deepseek chat model");
         assertTrue(AiModelCatalog.isTextChatModelId("qwen-max"), "qwen text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("moonshot-v1-32k"), "moonshot text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("kimi-k2-0905-preview"), "kimi text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("glm-4.7"), "glm text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("doubao-seed-1-6-250615"), "seed text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("grok-4.3"), "grok text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("gemini-2.5-pro"), "gemini text model");
         assertTrue(AiModelCatalog.isTextChatModelId("claude-3-5-sonnet"), "claude text model");
         assertEquals(List.of(), AiModelCatalog.cachedModelIds("deepseek"), "deepseek has no default model suggestions");
 
@@ -97,6 +153,10 @@ public final class AiSelfTest {
         assertFalse(AiModelCatalog.isTextChatModelId("gpt-4o-audio-preview"), "audio rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("whisper-1"), "whisper rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("omni-moderation-latest"), "moderation rejected");
+        assertFalse(AiModelCatalog.isTextChatModelId("qwen2.5-vl-72b-instruct"), "qwen vl rejected");
+        assertFalse(AiModelCatalog.isTextChatModelId("qwen-omni-turbo"), "qwen omni rejected");
+        assertFalse(AiModelCatalog.isTextChatModelId("glm-4v-plus"), "glm vision rejected");
+        assertFalse(AiModelCatalog.isTextChatModelId("gemini-2.5-pro-preview-tts"), "gemini tts rejected");
     }
 
     private static void testConversationHistory() {

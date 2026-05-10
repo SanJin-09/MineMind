@@ -139,16 +139,22 @@ public final class AiController {
         }
 
         AiChat.info("正在获取模型列表：" + settings.displayName());
-        EXECUTOR.execute(() -> {
-            try {
-                List<String> modelIds = provider.fetchModelIds(settings);
-                Minecraft.getInstance().execute(() -> showModelList(settings, modelIds));
-            } catch (AiException exception) {
-                Minecraft.getInstance().execute(() -> AiChat.error(exception.getMessage()));
-            } catch (RuntimeException exception) {
-                Minecraft.getInstance().execute(() -> AiChat.error(AiErrorType.LOCAL.message()));
-            }
-        });
+        fetchModels(settings, provider);
+    }
+
+    public static void refreshModelsAfterKeySet(String providerId) {
+        AiProviderSettings settings;
+        AiProvider provider;
+        try {
+            settings = AiConfigStore.settingsForProvider(providerId);
+            provider = AiProviderRegistry.provider(settings.providerId());
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return;
+        }
+
+        AiChat.info("正在自动获取模型列表：" + settings.displayName());
+        fetchModels(settings, provider);
     }
 
     public static void selectModel(String providerId, String modelId) {
@@ -237,6 +243,19 @@ public final class AiController {
         for (String line : joinModelLines(modelIds)) {
             AiChat.info(line);
         }
+    }
+
+    private static void fetchModels(AiProviderSettings settings, AiProvider provider) {
+        EXECUTOR.execute(() -> {
+            try {
+                List<String> modelIds = provider.fetchModelIds(settings);
+                Minecraft.getInstance().execute(() -> showModelList(settings, modelIds));
+            } catch (AiException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(exception.getMessage()));
+            } catch (RuntimeException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(AiErrorType.LOCAL.message()));
+            }
+        });
     }
 
     private static void applyModelSelection(String providerId, String modelId, List<String> modelIds) {

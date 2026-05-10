@@ -12,11 +12,9 @@ public final class AiHttpStatusClassifier {
 
     public static AiErrorType classify(int statusCode, String responseBody) {
         String body = responseBody == null ? "" : responseBody.toLowerCase(Locale.ROOT);
-        if (containsAny(body, "invalid_api_key", "incorrect api key", "authentication", "unauthorized", "forbidden")) {
-            return AiErrorType.AUTH;
-        }
         if (containsAny(body,
                 "insufficient_quota",
+                "resource_exhausted",
                 "quota",
                 "billing",
                 "balance",
@@ -30,7 +28,29 @@ public final class AiHttpStatusClassifier {
         )) {
             return AiErrorType.QUOTA;
         }
-        if (containsAny(body, "model_not_found", "model does not exist", "model_not_exist", "unknown model")) {
+        if (containsAny(body,
+                "invalid_api_key",
+                "incorrect api key",
+                "invalid api key",
+                "api key not valid",
+                "api_key_invalid",
+                "authentication",
+                "unauthorized",
+                "unauthenticated",
+                "forbidden",
+                "permission_denied"
+        )) {
+            return AiErrorType.AUTH;
+        }
+        if (containsAny(body,
+                "model_not_found",
+                "model does not exist",
+                "model_not_exist",
+                "unknown model",
+                "not_found",
+                "not found",
+                "not supported for generatecontent"
+        )) {
             return AiErrorType.MODEL;
         }
         return switch (statusCode) {

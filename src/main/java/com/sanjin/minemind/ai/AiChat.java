@@ -34,7 +34,7 @@ public final class AiChat {
 
     public static void assistant(String message) {
         for (String part : split(message)) {
-            add(styledLine(prefixName() + " > ", part, ChatFormatting.YELLOW, ChatFormatting.GRAY));
+            add(styledLine(assistantName() + " > ", part, ChatFormatting.YELLOW, ChatFormatting.GRAY));
         }
     }
 
@@ -45,18 +45,12 @@ public final class AiChat {
     }
 
     private static String prefix() {
-        return "[" + prefixName() + "]";
+        return "[" + DEFAULT_PREFIX + "]";
     }
 
-    private static String prefixName() {
+    private static String assistantName() {
         try {
-            if (!AiConfigStore.isAiMode()) {
-                return DEFAULT_PREFIX;
-            }
             AiProviderSettings settings = AiConfigStore.currentSettings();
-            if (settings.model() != null && !settings.model().isBlank()) {
-                return settings.model();
-            }
             if (settings.displayName() != null && !settings.displayName().isBlank()) {
                 return settings.displayName();
             }

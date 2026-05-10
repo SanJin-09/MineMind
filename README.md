@@ -8,7 +8,7 @@ MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mo
 - 支持单次提问和 AI 对话模式。
 - AI 模式下普通聊天输入会被客户端拦截并发送给 AI。
 - AI 回复直接显示在 Minecraft 聊天区域。
-- 支持 OpenAI 与 DeepSeek 两个内置 Provider。
+- 支持 OpenAI、DeepSeek、Qwen、KiMi、GLM、Seed、Grok、Gemini 内置 Provider。
 - 支持每个 Provider 独立保存 API Key、Base URL 和模型 ID。
 - 支持从 Provider 获取可用模型列表，并限制只能切换到列表中的文本对话模型。
 - 支持短期上下文，默认保留最近 20 条消息。
@@ -25,13 +25,14 @@ MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mo
 - 单人客户端使用
 - 文本对话模型
 - OpenAI-compatible Chat Completions 数据流
-- OpenAI
-- DeepSeek
+- Gemini 原生 `generateContent` 文本对话接口
+- OpenAI、DeepSeek、Qwen、KiMi、GLM、Seed、Grok、Gemini
 
 暂不支持：
 
 - 多人服务器权限管理、统一计费或玩家管理
 - 工具调用、世界状态读取
+- 图片、语音、嵌入、实时语音等非文本模型能力
 - 长期记忆和跨游戏会话历史
 
 ## 快速开始
@@ -60,6 +61,17 @@ DeepSeek：
 /ai key deepseek <你的 DeepSeek API Key>
 ```
 
+其他内置 Provider：
+
+```text
+/ai key qwen <你的 Qwen API Key>
+/ai key kimi <你的 KiMi API Key>
+/ai key glm <你的 GLM API Key>
+/ai key seed <你的 Seed API Key>
+/ai key grok <你的 Grok API Key>
+/ai key gemini <你的 Gemini API Key>
+```
+
 ### 4. 查看并切换模型
 
 先获取当前 Provider 可用的文本对话模型列表：
@@ -83,7 +95,7 @@ DeepSeek：
 开启后，普通聊天输入会发送给 AI，而不是作为普通聊天消息发送。AI 回复格式示例：
 
 ```text
-deepseek-chat > 你好，请问有什么帮助？
+DeepSeek > 你好，请问有什么帮助？
 ```
 
 退出 AI 模式：
@@ -110,7 +122,7 @@ deepseek-chat > 你好，请问有什么帮助？
 | `/ai model <provider>` | 获取该 Provider 当前可用文本模型列表 |
 | `/ai model <provider> <id>` | 切换到模型列表中的指定模型 |
 | `/ai key <provider> <key>` | 设置 Provider API Key |
-| `/ai key list` | 查看所有 Provider 的 Key 配置状态，只显示尾号 |
+| `/ai key list` | 查看已配置 API Key 的 Provider，只显示尾号 |
 | `/ai key remove <provider>` | 删除 Provider API Key |
 | `/ai base` | 查看当前 Provider 的 API Base URL |
 | `/ai base <provider> <url>` | 设置 Provider API Base URL |
@@ -123,23 +135,20 @@ deepseek-chat > 你好，请问有什么帮助？
 
 ## Provider
 
-### OpenAI
+内置 Provider 不再设置默认推荐模型。玩家必须先执行 `/ai model <provider>`，从服务商 API 返回的可用纯文本模型列表中选择型号。
 
-| 字段 | 默认值 |
-| --- | --- |
-| Provider ID | `openai` |
-| Display Name | `OpenAI` |
-| Base URL | `https://api.openai.com/v1` |
-| 接口类型 | OpenAI-compatible |
+| Provider ID | Display Name | 默认 Base URL | 接口类型 |
+| --- | --- | --- | --- |
+| `openai` | `OpenAI` | `https://api.openai.com/v1` | OpenAI-compatible |
+| `deepseek` | `DeepSeek` | `https://api.deepseek.com` | OpenAI-compatible |
+| `qwen` | `Qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible |
+| `kimi` | `KiMi` | `https://api.moonshot.ai/v1` | OpenAI-compatible |
+| `glm` | `GLM` | `https://open.bigmodel.cn/api/paas/v4` | OpenAI-compatible |
+| `seed` | `Seed` | `https://ark.cn-beijing.volces.com/api/v3` | OpenAI-compatible |
+| `grok` | `Grok` | `https://api.x.ai/v1` | OpenAI-compatible |
+| `gemini` | `Gemini` | `https://generativelanguage.googleapis.com/v1beta` | Gemini native |
 
-### DeepSeek
-
-| 字段 | 默认值 |
-| --- | --- |
-| Provider ID | `deepseek` |
-| Display Name | `DeepSeek` |
-| Base URL | `https://api.deepseek.com` |
-| 接口类型 | OpenAI-compatible |
+如果你的账号所属平台区域使用不同 API 域名，可以通过 `/ai base <provider> <url>` 覆盖 Base URL。
 
 ### 自定义 Provider
 
@@ -147,7 +156,7 @@ deepseek-chat > 你好，请问有什么帮助？
 
 - API Key
 - Base URL
-- 模型 ID
+- 模型 ID 必须来自该 Provider 的 `/models` 返回结果
 
 命令示例：
 
@@ -196,6 +205,42 @@ deepseek-chat > 你好，请问有什么帮助？
       "displayName": "DeepSeek",
       "model": "",
       "baseUrl": "https://api.deepseek.com",
+      "apiKey": ""
+    },
+    "qwen": {
+      "displayName": "Qwen",
+      "model": "",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "apiKey": ""
+    },
+    "kimi": {
+      "displayName": "KiMi",
+      "model": "",
+      "baseUrl": "https://api.moonshot.ai/v1",
+      "apiKey": ""
+    },
+    "glm": {
+      "displayName": "GLM",
+      "model": "",
+      "baseUrl": "https://open.bigmodel.cn/api/paas/v4",
+      "apiKey": ""
+    },
+    "seed": {
+      "displayName": "Seed",
+      "model": "",
+      "baseUrl": "https://ark.cn-beijing.volces.com/api/v3",
+      "apiKey": ""
+    },
+    "grok": {
+      "displayName": "Grok",
+      "model": "",
+      "baseUrl": "https://api.x.ai/v1",
+      "apiKey": ""
+    },
+    "gemini": {
+      "displayName": "Gemini",
+      "model": "",
+      "baseUrl": "https://generativelanguage.googleapis.com/v1beta",
       "apiKey": ""
     }
   }
@@ -262,7 +307,7 @@ src/test/java/com/sanjin/minemind/ai/AiSelfTest.java
 当前自测覆盖：
 
 - Provider 注册表
-- OpenAI 和 DeepSeek 默认配置
+- OpenAI、DeepSeek、Qwen、KiMi、GLM、Seed、Grok、Gemini 默认配置
 - timeout / max history 规则
 - Base URL 修复
 - HTTP 错误分类
@@ -273,10 +318,9 @@ src/test/java/com/sanjin/minemind/ai/AiSelfTest.java
 
 下一阶段计划：
 
-- 接入更多 OpenAI-compatible Provider：Qwen、KiMi、GLM、Seed、Grok。
-- 实现 Gemini 原生文本对话接口。
 - 继续优化聊天帮助、状态展示和错误提示。
 - 添加 README 以外的用户手册和发布检查清单。
+- 建立更完整的手动回归测试矩阵。
 
 长期目标：
 
