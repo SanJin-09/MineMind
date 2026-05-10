@@ -28,18 +28,18 @@
 
 - [x] 将 OpenAI-compatible 请求抽象为统一 `AiProvider` 接口。
 - [x] 将服务商预设迁移到独立注册表，避免散落在配置类中。
-- [x] 每个 Provider 支持默认 display name、base URL、推荐模型 ID。
+- [x] 每个 Provider 支持默认 display name 和 base URL。
 - [x] 支持 Provider 级别 API Key、Base URL、模型 ID 独立保存。
 - [x] 增加 Provider 建议补全，命令输入时能补全内置服务商。
 
 ## v0.4：主流服务商接入
 
-- [x] DeepSeek：已在 v0.3 按 OpenAI-compatible Provider 接入，预设 `deepseek-chat`、`deepseek-reasoner`。
-- [ ] Qwen / 通义千问：按兼容接口接入，允许用户手动填写模型 ID。
-- [ ] KiMi / Moonshot：按兼容接口接入，允许用户手动填写模型 ID。
-- [ ] GLM / 智谱：按兼容接口接入，允许用户手动填写模型 ID。
-- [ ] Seed / 豆包 / 火山：按兼容接口接入，允许用户手动填写模型 ID。
-- [ ] Grok / xAI：按兼容接口接入，允许用户手动填写模型 ID。
+- [x] DeepSeek：已在 v0.3 按 OpenAI-compatible Provider 接入。
+- [ ] Qwen / 通义千问：按兼容接口接入，模型只能从服务商 API 返回的可用纯文本模型列表中选择。
+- [ ] KiMi / Moonshot：按兼容接口接入，模型只能从服务商 API 返回的可用纯文本模型列表中选择。
+- [ ] GLM / 智谱：按兼容接口接入，模型只能从服务商 API 返回的可用纯文本模型列表中选择。
+- [ ] Seed / 豆包 / 火山：按兼容接口接入，模型只能从服务商 API 返回的可用纯文本模型列表中选择。
+- [ ] Grok / xAI：按兼容接口接入，模型只能从服务商 API 返回的可用纯文本模型列表中选择。
 - [ ] Gemini / Google：实现 Gemini 原生文本对话接口适配。
 - [ ] 为每个 Provider 验证认证失败、模型不存在、限流、5xx、空回复的错误映射。
 
@@ -90,7 +90,7 @@
 - [ ] AI 回复以 Minecraft 聊天消息显示。
 - [ ] 支持 API Key 设置、删除、隐藏显示。
 - [ ] 支持 OpenAI、Gemini、Grok、DeepSeek、Qwen、KiMi、Seed、GLM。
-- [ ] 支持手动填写模型 ID，不因模型版本变化频繁更新 Mod。
+- [ ] 模型型号只能从所选服务商 API 返回的可用纯文本模型列表中选择。
 - [ ] 支持每个服务商独立 API Key 和 Base URL。
 - [ ] 支持明确错误分类：网络、认证、模型、额度、请求、服务、本地。
 - [ ] 支持短期上下文、清空上下文、默认新会话。

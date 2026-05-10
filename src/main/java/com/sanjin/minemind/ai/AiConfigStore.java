@@ -338,7 +338,7 @@ public final class AiConfigStore {
         static ProviderConfig fromProvider(AiProvider aiProvider) {
             ProviderConfig provider = new ProviderConfig();
             provider.displayName = aiProvider.displayName();
-            provider.model = aiProvider.recommendedModelId();
+            provider.model = "";
             provider.baseUrl = aiProvider.defaultBaseUrl();
             return provider;
         }
@@ -364,8 +364,8 @@ public final class AiConfigStore {
                 displayName = registeredProvider == null ? prettyName(providerId) : registeredProvider.displayName();
                 changed = true;
             }
-            if (model == null || (registeredProvider != null && model.isBlank())) {
-                model = registeredProvider == null ? "" : registeredProvider.recommendedModelId();
+            if (model == null) {
+                model = "";
                 changed = true;
             }
             String repairedBaseUrl = AiConfigRules.repairBaseUrl(providerId, baseUrl);

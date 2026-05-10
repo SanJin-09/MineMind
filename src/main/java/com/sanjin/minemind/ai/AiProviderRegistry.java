@@ -1,38 +1,28 @@
 package com.sanjin.minemind.ai;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 public final class AiProviderRegistry {
     public static final String OPENAI_PROVIDER_ID = "openai";
     public static final String DEEPSEEK_PROVIDER_ID = "deepseek";
 
     private static final Map<String, AiProvider> PROVIDERS = new LinkedHashMap<>();
-    private static final Map<String, String> ALIASES = new LinkedHashMap<>();
 
     static {
         register(new OpenAiCompatibleProvider(
                 OPENAI_PROVIDER_ID,
                 "OpenAI",
-                "https://api.openai.com/v1",
-                "gpt-4.1",
-                List.of("gpt-4.1"),
-                List.of("chatgpt")
+                "https://api.openai.com/v1"
         ));
         register(new OpenAiCompatibleProvider(
                 DEEPSEEK_PROVIDER_ID,
                 "DeepSeek",
-                "https://api.deepseek.com",
-                "deepseek-chat",
-                List.of("deepseek-chat", "deepseek-reasoner"),
-                List.of()
+                "https://api.deepseek.com"
         ));
     }
 
@@ -43,8 +33,7 @@ public final class AiProviderRegistry {
         if (providerId == null || providerId.isBlank()) {
             throw new AiConfigStore.ConfigException("服务商不能为空");
         }
-        String normalized = providerId.trim().toLowerCase(Locale.ROOT);
-        return ALIASES.getOrDefault(normalized, normalized);
+        return providerId.trim().toLowerCase(Locale.ROOT);
     }
 
     public static AiProvider provider(String providerId) {
@@ -67,19 +56,7 @@ public final class AiProviderRegistry {
     }
 
     public static List<String> providerSuggestions(Collection<String> configuredProviderIds) {
-        Set<String> suggestions = new LinkedHashSet<>();
-        for (AiProvider provider : PROVIDERS.values()) {
-            suggestions.add(provider.id());
-            suggestions.addAll(provider.aliases());
-        }
-        if (configuredProviderIds != null) {
-            for (String providerId : configuredProviderIds) {
-                if (providerId != null && !providerId.isBlank()) {
-                    suggestions.add(providerId.trim().toLowerCase(Locale.ROOT));
-                }
-            }
-        }
-        return new ArrayList<>(suggestions);
+        return registeredProviderIds();
     }
 
     public static String prettyProviderName(String providerId) {
@@ -96,8 +73,5 @@ public final class AiProviderRegistry {
 
     private static void register(AiProvider provider) {
         PROVIDERS.put(provider.id(), provider);
-        for (String alias : provider.aliases()) {
-            ALIASES.put(alias.toLowerCase(Locale.ROOT), provider.id());
-        }
     }
 }

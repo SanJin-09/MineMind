@@ -56,7 +56,7 @@ public final class AiController {
             AiConfigStore.setAiMode(true);
             AiProviderSettings settings = AiConfigStore.currentSettings();
             AiChat.info("已进入 AI 对话模式，输入 /ai off 退出");
-            AiChat.info("当前模型：" + settings.displayName() + " / " + settings.model());
+            AiChat.info("当前模型：" + modelText(settings));
             return true;
         } catch (AiConfigStore.ConfigException exception) {
             AiChat.error(exception.getMessage());

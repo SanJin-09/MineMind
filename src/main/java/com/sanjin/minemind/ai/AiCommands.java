@@ -32,7 +32,7 @@ public final class AiCommands {
                                 .executes(AiCommands::listModels)
                                 .then(argument("model", StringArgumentType.greedyString())
                                         .suggests((context, builder) -> SharedSuggestionProvider.suggest(
-                                                AiModelCatalog.suggestedModelIds(StringArgumentType.getString(context, "provider")),
+                                                AiModelCatalog.cachedModelIds(StringArgumentType.getString(context, "provider")),
                                                 builder
                                         ))
                                         .executes(AiCommands::setModel))))
@@ -99,7 +99,8 @@ public final class AiCommands {
 
     private static int model(CommandContext<CommandSourceStack> context) {
         AiProviderSettings settings = AiConfigStore.currentSettings();
-        AiChat.info("当前模型：" + settings.displayName() + " / " + settings.model());
+        String model = settings.model() == null || settings.model().isBlank() ? "未设置" : settings.model();
+        AiChat.info("当前模型：" + settings.displayName() + " / " + model);
         return 1;
     }
 

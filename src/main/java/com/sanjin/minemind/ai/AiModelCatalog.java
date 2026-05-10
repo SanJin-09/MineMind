@@ -39,14 +39,6 @@ public final class AiModelCatalog {
         }
     }
 
-    public static List<String> suggestedModelIds(String providerId) {
-        List<String> cached = cachedModelIds(providerId);
-        if (!cached.isEmpty()) {
-            return cached;
-        }
-        return AiProviderRegistry.provider(providerId).recommendedModelIds();
-    }
-
     public static List<String> fetchModelIds(AiProviderSettings settings) throws AiException {
         validate(settings);
 
@@ -153,8 +145,6 @@ public final class AiModelCatalog {
         return startsWithAny(id,
                 "gpt-",
                 "ft:gpt-",
-                "chatgpt-",
-                "ft:chatgpt-",
                 "o1",
                 "ft:o1",
                 "o3",

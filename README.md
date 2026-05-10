@@ -1,6 +1,6 @@
 # MineMind
 
-MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mod。它允许玩家在不离开游戏的情况下，通过原版聊天栏进入 AI 对话模式，使用玩家自己的 API Key 调用 文本对话模型。
+MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mod。它允许玩家在不离开游戏的情况下，通过原版聊天栏进入 AI 对话模式，并使用玩家自己的 API Key 调用文本对话模型。
 
 ## 核心能力
 
@@ -60,12 +60,6 @@ DeepSeek：
 /ai key deepseek <你的 DeepSeek API Key>
 ```
 
-`chatgpt` 是 `openai` 的别名，也可以使用：
-
-```text
-/ai key chatgpt <你的 OpenAI API Key>
-```
-
 ### 4. 查看并切换模型
 
 先获取当前 Provider 可用的文本对话模型列表：
@@ -77,20 +71,7 @@ DeepSeek：
 然后选择列表中的模型：
 
 ```text
-/ai model deepseek deepseek-chat
-```
-
-DeepSeek 默认推荐：
-
-```text
-deepseek-chat
-deepseek-reasoner
-```
-
-OpenAI 默认推荐：
-
-```text
-gpt-4.1
+/ai model deepseek <列表中的模型 ID>
 ```
 
 ### 5. 开启 AI 对话模式
@@ -147,10 +128,8 @@ deepseek-chat > 你好，请问有什么帮助？
 | 字段 | 默认值 |
 | --- | --- |
 | Provider ID | `openai` |
-| 别名 | `chatgpt` |
 | Display Name | `OpenAI` |
 | Base URL | `https://api.openai.com/v1` |
-| 推荐模型 | `gpt-4.1` |
 | 接口类型 | OpenAI-compatible |
 
 ### DeepSeek
@@ -160,8 +139,6 @@ deepseek-chat > 你好，请问有什么帮助？
 | Provider ID | `deepseek` |
 | Display Name | `DeepSeek` |
 | Base URL | `https://api.deepseek.com` |
-| 推荐模型 | `deepseek-chat` |
-| 推荐候选 | `deepseek-chat`、`deepseek-reasoner` |
 | 接口类型 | OpenAI-compatible |
 
 ### 自定义 Provider
@@ -211,13 +188,13 @@ deepseek-chat > 你好，请问有什么帮助？
   "providers": {
     "openai": {
       "displayName": "OpenAI",
-      "model": "gpt-4.1",
+      "model": "",
       "baseUrl": "https://api.openai.com/v1",
       "apiKey": ""
     },
     "deepseek": {
       "displayName": "DeepSeek",
-      "model": "deepseek-chat",
+      "model": "",
       "baseUrl": "https://api.deepseek.com",
       "apiKey": ""
     }
@@ -284,7 +261,7 @@ src/test/java/com/sanjin/minemind/ai/AiSelfTest.java
 
 当前自测覆盖：
 
-- Provider 注册表与别名
+- Provider 注册表
 - OpenAI 和 DeepSeek 默认配置
 - timeout / max history 规则
 - Base URL 修复

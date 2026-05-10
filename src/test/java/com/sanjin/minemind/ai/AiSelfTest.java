@@ -20,29 +20,22 @@ public final class AiSelfTest {
 
     private static void testProviderRules() {
         assertEquals("openai", AiConfigRules.normalizeProviderId("OpenAI"), "openai normalize");
-        assertEquals("openai", AiConfigRules.normalizeProviderId("ChatGPT"), "chatgpt alias");
         assertEquals("deepseek", AiConfigRules.normalizeProviderId("DeepSeek"), "deepseek normalize");
 
         AiProvider openai = AiProviderRegistry.provider("openai");
         assertEquals("openai", openai.id(), "openai provider id");
         assertEquals("OpenAI", openai.displayName(), "openai display name");
         assertEquals("https://api.openai.com/v1", openai.defaultBaseUrl(), "openai base url");
-        assertEquals("gpt-4.1", openai.recommendedModelId(), "openai recommended model");
-
-        AiProvider chatgpt = AiProviderRegistry.provider("chatgpt");
-        assertEquals("openai", chatgpt.id(), "chatgpt provider alias");
 
         AiProvider deepseek = AiProviderRegistry.provider("deepseek");
         assertEquals("deepseek", deepseek.id(), "deepseek provider id");
         assertEquals("DeepSeek", deepseek.displayName(), "deepseek display name");
         assertEquals("https://api.deepseek.com", deepseek.defaultBaseUrl(), "deepseek base url");
-        assertEquals("deepseek-chat", deepseek.recommendedModelId(), "deepseek recommended model");
 
         List<String> suggestions = AiProviderRegistry.providerSuggestions(List.of("custom"));
         assertContains(suggestions, "openai", "provider suggestions openai");
-        assertContains(suggestions, "chatgpt", "provider suggestions chatgpt");
         assertContains(suggestions, "deepseek", "provider suggestions deepseek");
-        assertContains(suggestions, "custom", "provider suggestions custom");
+        assertNotContains(suggestions, "custom", "provider suggestions only built-in providers");
     }
 
     private static void testTimeoutRules() {
@@ -92,12 +85,12 @@ public final class AiSelfTest {
     }
 
     private static void testModelCatalogFiltering() {
-        assertTrue(AiModelCatalog.isTextChatModelId("gpt-4.1"), "gpt text model");
-        assertTrue(AiModelCatalog.isTextChatModelId("ft:gpt-4.1:org:name:id"), "fine tuned gpt text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("gpt-4o"), "gpt text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("ft:gpt-4o:org:name:id"), "fine tuned gpt text model");
         assertTrue(AiModelCatalog.isTextChatModelId("deepseek-chat"), "deepseek chat model");
         assertTrue(AiModelCatalog.isTextChatModelId("qwen-max"), "qwen text model");
         assertTrue(AiModelCatalog.isTextChatModelId("claude-3-5-sonnet"), "claude text model");
-        assertEquals(List.of("deepseek-chat", "deepseek-reasoner"), AiModelCatalog.suggestedModelIds("deepseek"), "deepseek model suggestions");
+        assertEquals(List.of(), AiModelCatalog.cachedModelIds("deepseek"), "deepseek has no default model suggestions");
 
         assertFalse(AiModelCatalog.isTextChatModelId("text-embedding-3-small"), "embedding rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("gpt-image-1"), "image rejected");
@@ -146,6 +139,12 @@ public final class AiSelfTest {
     private static void assertContains(List<String> values, String expected, String label) {
         if (!values.contains(expected)) {
             throw new AssertionError(label + ": expected list to contain <" + expected + "> but was <" + values + ">");
+        }
+    }
+
+    private static void assertNotContains(List<String> values, String expected, String label) {
+        if (values.contains(expected)) {
+            throw new AssertionError(label + ": expected list to omit <" + expected + "> but was <" + values + ">");
         }
     }
 }
