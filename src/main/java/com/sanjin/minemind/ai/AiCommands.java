@@ -29,7 +29,12 @@ public final class AiCommands {
                         .executes(AiCommands::model)
                         .then(argument("provider", StringArgumentType.word())
                                 .suggests((context, builder) -> SharedSuggestionProvider.suggest(AiConfigStore.providerIds(), builder))
+                                .executes(AiCommands::listModels)
                                 .then(argument("model", StringArgumentType.greedyString())
+                                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(
+                                                AiModelCatalog.suggestedModelIds(StringArgumentType.getString(context, "provider")),
+                                                builder
+                                        ))
                                         .executes(AiCommands::setModel))))
                 .then(literal("key")
                         .then(literal("list").executes(AiCommands::listKeys))
@@ -60,11 +65,13 @@ public final class AiCommands {
     }
 
     private static int help(CommandContext<CommandSourceStack> context) {
+        AiChat.infoHighlight("============ MineMind AI 命令帮助 =============");
         AiChat.info("/ai on - 开启 AI 对话模式");
         AiChat.info("/ai off - 关闭 AI 对话模式");
         AiChat.info("/ai ask <内容> - 单次向 AI 提问");
         AiChat.info("/ai model - 查看当前模型");
-        AiChat.info("/ai model <provider> <id> - 切换模型");
+        AiChat.info("/ai model <provider> - 获取可选型号列表");
+        AiChat.info("/ai model <provider> <id> - 从可选列表切换模型");
         AiChat.info("/ai key <provider> <key> - 设置 API Key");
         AiChat.info("/ai key list - 查看 API Key 状态");
         AiChat.info("/ai key remove <provider> - 删除 API Key");
@@ -96,18 +103,16 @@ public final class AiCommands {
         return 1;
     }
 
+    private static int listModels(CommandContext<CommandSourceStack> context) {
+        AiController.listModels(StringArgumentType.getString(context, "provider"));
+        return 1;
+    }
+
     private static int setModel(CommandContext<CommandSourceStack> context) {
         String provider = StringArgumentType.getString(context, "provider");
         String model = StringArgumentType.getString(context, "model");
-        try {
-            AiConfigStore.setProviderModel(provider, model);
-            AiProviderSettings settings = AiConfigStore.currentSettings();
-            AiChat.info("当前模型已切换为：" + settings.displayName() + " / " + settings.model());
-            return 1;
-        } catch (AiConfigStore.ConfigException exception) {
-            AiChat.error(exception.getMessage());
-            return 0;
-        }
+        AiController.selectModel(provider, model);
+        return 1;
     }
 
     private static int setKey(CommandContext<CommandSourceStack> context) {

@@ -18,6 +18,10 @@ public final class AiChat {
         add(styledLine(prefix() + " ", message, ChatFormatting.DARK_AQUA, ChatFormatting.WHITE));
     }
 
+    public static void infoHighlight(String message) {
+        add(styledLine(prefix() + " ", message, ChatFormatting.DARK_AQUA, ChatFormatting.YELLOW));
+    }
+
     public static void error(String message) {
         add(styledLine(prefix() + " 错误：", message, ChatFormatting.DARK_RED, ChatFormatting.RED));
     }
@@ -30,13 +34,13 @@ public final class AiChat {
 
     public static void assistant(String message) {
         for (String part : split(message)) {
-            add(styledLine(prefix() + " > ", part, ChatFormatting.DARK_AQUA, ChatFormatting.WHITE));
+            add(styledLine(prefixName() + " > ", part, ChatFormatting.YELLOW, ChatFormatting.GRAY));
         }
     }
 
     private static Component styledLine(String prefix, String body, ChatFormatting prefixColor, ChatFormatting bodyColor) {
         return Component.literal(prefix)
-                .withStyle(prefixColor, ChatFormatting.BOLD)
+                .withStyle(prefixColor)
                 .append(Component.literal(body).withStyle(bodyColor));
     }
 

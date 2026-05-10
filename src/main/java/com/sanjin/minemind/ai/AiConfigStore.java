@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 public final class AiConfigStore {
@@ -47,6 +46,20 @@ public final class AiConfigStore {
         ProviderConfig provider = provider(data.currentProvider);
         return new AiProviderSettings(
                 data.currentProvider,
+                provider.displayName,
+                provider.model,
+                provider.baseUrl,
+                provider.apiKey,
+                data.timeoutSeconds
+        );
+    }
+
+    public static synchronized AiProviderSettings settingsForProvider(String providerId) {
+        ConfigData data = data();
+        String normalized = AiConfigRules.normalizeProviderId(providerId);
+        ProviderConfig provider = provider(normalized);
+        return new AiProviderSettings(
+                normalized,
                 provider.displayName,
                 provider.model,
                 provider.baseUrl,
@@ -100,7 +113,7 @@ public final class AiConfigStore {
     }
 
     public static synchronized List<String> providerIds() {
-        return new ArrayList<>(data().providers.keySet());
+        return AiProviderRegistry.providerSuggestions(data().providers.keySet());
     }
 
     public static synchronized List<String> statusLines(boolean singleplayerWorld, boolean requesting, int historyMessages) {
@@ -162,7 +175,7 @@ public final class AiConfigStore {
         String normalized = AiConfigRules.normalizeProviderId(providerId);
         ProviderConfig provider = data.providers.get(normalized);
         if (provider == null) {
-            provider = ProviderConfig.custom(normalized);
+            provider = ProviderConfig.defaultFor(normalized);
             data.providers.put(normalized, provider);
         }
         return provider;
@@ -207,7 +220,7 @@ public final class AiConfigStore {
     private static boolean ensureDefaults(ConfigData data) {
         boolean changed = false;
         if (data.currentProvider == null || data.currentProvider.isBlank()) {
-            data.currentProvider = AiConfigRules.OPENAI_PROVIDER_ID;
+            data.currentProvider = AiProviderRegistry.OPENAI_PROVIDER_ID;
             changed = true;
         } else {
             String normalized = AiConfigRules.normalizeProviderId(data.currentProvider);
@@ -218,9 +231,12 @@ public final class AiConfigStore {
             data.providers = new LinkedHashMap<>();
             changed = true;
         }
-        if (!data.providers.containsKey(AiConfigRules.OPENAI_PROVIDER_ID)) {
-            data.providers.put(AiConfigRules.OPENAI_PROVIDER_ID, ProviderConfig.openAi());
-            changed = true;
+        changed |= normalizeProviderKeys(data);
+        for (AiProvider provider : AiProviderRegistry.registeredProviders()) {
+            if (!data.providers.containsKey(provider.id())) {
+                data.providers.put(provider.id(), ProviderConfig.fromProvider(provider));
+                changed = true;
+            }
         }
         int sanitizedTimeout = AiConfigRules.sanitizeTimeoutSeconds(data.timeoutSeconds);
         if (sanitizedTimeout != data.timeoutSeconds) {
@@ -234,7 +250,7 @@ public final class AiConfigStore {
         }
         for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
             if (entry.getValue() == null) {
-                entry.setValue(ProviderConfig.custom(entry.getKey()));
+                entry.setValue(ProviderConfig.defaultFor(entry.getKey()));
                 changed = true;
             } else {
                 changed |= entry.getValue().ensure(entry.getKey());
@@ -243,12 +259,61 @@ public final class AiConfigStore {
         return changed;
     }
 
+    private static boolean normalizeProviderKeys(ConfigData data) {
+        boolean changed = false;
+        Map<String, ProviderConfig> normalizedProviders = new LinkedHashMap<>();
+        for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
+            String original = entry.getKey();
+            String normalized;
+            try {
+                normalized = AiConfigRules.normalizeProviderId(original);
+            } catch (ConfigException exception) {
+                changed = true;
+                continue;
+            }
+            ProviderConfig existing = normalizedProviders.get(normalized);
+            if (existing == null) {
+                normalizedProviders.put(normalized, entry.getValue());
+            } else {
+                mergeProviderConfig(existing, entry.getValue());
+                changed = true;
+            }
+            changed |= !normalized.equals(original);
+        }
+        if (changed) {
+            data.providers = normalizedProviders;
+        }
+        return changed;
+    }
+
+    private static void mergeProviderConfig(ProviderConfig target, ProviderConfig source) {
+        if (target == null || source == null) {
+            return;
+        }
+        if (isBlank(target.displayName) && !isBlank(source.displayName)) {
+            target.displayName = source.displayName;
+        }
+        if (isBlank(target.model) && !isBlank(source.model)) {
+            target.model = source.model;
+        }
+        if (isBlank(target.baseUrl) && !isBlank(source.baseUrl)) {
+            target.baseUrl = source.baseUrl;
+        }
+        if (isBlank(target.apiKey) && !isBlank(source.apiKey)) {
+            target.apiKey = source.apiKey;
+        }
+    }
+
     private static String emptyText(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     public static class ConfigData {
-        public String currentProvider = AiConfigRules.OPENAI_PROVIDER_ID;
+        public String currentProvider = AiProviderRegistry.OPENAI_PROVIDER_ID;
         public int timeoutSeconds = AiConfigRules.DEFAULT_TIMEOUT_SECONDS;
         public int maxHistoryMessages = AiConfigRules.DEFAULT_MAX_HISTORY_MESSAGES;
         public boolean streaming = false;
@@ -257,7 +322,9 @@ public final class AiConfigStore {
 
         static ConfigData defaults() {
             ConfigData data = new ConfigData();
-            data.providers.put(AiConfigRules.OPENAI_PROVIDER_ID, ProviderConfig.openAi());
+            for (AiProvider provider : AiProviderRegistry.registeredProviders()) {
+                data.providers.put(provider.id(), ProviderConfig.fromProvider(provider));
+            }
             return data;
         }
     }
@@ -268,12 +335,18 @@ public final class AiConfigStore {
         public String baseUrl;
         public String apiKey = "";
 
-        static ProviderConfig openAi() {
+        static ProviderConfig fromProvider(AiProvider aiProvider) {
             ProviderConfig provider = new ProviderConfig();
-            provider.displayName = AiConfigRules.OPENAI_DISPLAY_NAME;
-            provider.model = AiConfigRules.OPENAI_DEFAULT_MODEL;
-            provider.baseUrl = AiConfigRules.OPENAI_DEFAULT_BASE_URL;
+            provider.displayName = aiProvider.displayName();
+            provider.model = aiProvider.recommendedModelId();
+            provider.baseUrl = aiProvider.defaultBaseUrl();
             return provider;
+        }
+
+        static ProviderConfig defaultFor(String providerId) {
+            return AiProviderRegistry.registeredProvider(providerId)
+                    .map(ProviderConfig::fromProvider)
+                    .orElseGet(() -> custom(providerId));
         }
 
         static ProviderConfig custom(String providerId) {
@@ -286,12 +359,13 @@ public final class AiConfigStore {
 
         boolean ensure(String providerId) {
             boolean changed = false;
+            AiProvider registeredProvider = AiProviderRegistry.registeredProvider(providerId).orElse(null);
             if (displayName == null || displayName.isBlank()) {
-                displayName = prettyName(providerId);
+                displayName = registeredProvider == null ? prettyName(providerId) : registeredProvider.displayName();
                 changed = true;
             }
-            if (model == null) {
-                model = "";
+            if (model == null || (registeredProvider != null && model.isBlank())) {
+                model = registeredProvider == null ? "" : registeredProvider.recommendedModelId();
                 changed = true;
             }
             String repairedBaseUrl = AiConfigRules.repairBaseUrl(providerId, baseUrl);
@@ -307,10 +381,7 @@ public final class AiConfigStore {
         }
 
         private static String prettyName(String providerId) {
-            if (AiConfigRules.OPENAI_PROVIDER_ID.equals(providerId)) {
-                return AiConfigRules.OPENAI_DISPLAY_NAME;
-            }
-            return providerId.substring(0, 1).toUpperCase(Locale.ROOT) + providerId.substring(1);
+            return AiProviderRegistry.prettyProviderName(providerId);
         }
     }
 

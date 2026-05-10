@@ -42,13 +42,18 @@ public final class OpenAiChatClient {
         }
         body.add("messages", jsonMessages);
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(settings.baseUrl() + "/chat/completions"))
-                .timeout(Duration.ofSeconds(settings.timeoutSeconds()))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + settings.apiKey())
-                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
-                .build();
+        HttpRequest request;
+        try {
+            request = HttpRequest.newBuilder()
+                    .uri(URI.create(settings.baseUrl() + "/chat/completions"))
+                    .timeout(Duration.ofSeconds(settings.timeoutSeconds()))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + settings.apiKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
+                    .build();
+        } catch (IllegalArgumentException exception) {
+            throw new AiException(AiErrorType.LOCAL, "API Base URL 无效");
+        }
 
         HttpResponse<String> response;
         try {
@@ -62,12 +67,10 @@ public final class OpenAiChatClient {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new AiException(AiErrorType.LOCAL, "请求已中断");
-        } catch (IllegalArgumentException exception) {
-            throw new AiException(AiErrorType.LOCAL, "API Base URL 无效");
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new AiException(AiHttpStatusClassifier.classify(response.statusCode()));
+            throw new AiException(AiHttpStatusClassifier.classify(response.statusCode(), response.body()));
         }
         return parseContent(response.body());
     }

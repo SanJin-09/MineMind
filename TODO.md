@@ -2,7 +2,7 @@
 
 从当前 `v0.1` 到完整需求版本的执行计划。
 
-## 当前状态：v0.1 已完成
+## 当前状态：v0.3 已完成
 
 - [x] 清理 NeoForge 模板示例方块、物品、创造栏、配置和示例文案。
 - [x] 初始化客户端 `/ai` 命令框架。
@@ -26,17 +26,15 @@
 
 ## v0.3：Provider 抽象完善
 
-- [ ] 将 OpenAI-compatible 请求抽象为统一 `AiProvider` 接口。
-- [ ] 将服务商预设迁移到独立注册表，避免散落在配置类中。
-- [ ] 每个 Provider 支持默认 display name、base URL、推荐模型 ID。
-- [ ] 保持模型 ID 完全可自定义，不硬编码版本白名单。
-- [ ] 支持 Provider 级别 API Key、Base URL、模型 ID 独立保存。
-- [ ] 增加 Provider 建议补全，命令输入时能补全内置服务商。
-- [ ] 明确未知 Provider 的行为：允许创建，但必须手动配置 model 和 base URL。
+- [x] 将 OpenAI-compatible 请求抽象为统一 `AiProvider` 接口。
+- [x] 将服务商预设迁移到独立注册表，避免散落在配置类中。
+- [x] 每个 Provider 支持默认 display name、base URL、推荐模型 ID。
+- [x] 支持 Provider 级别 API Key、Base URL、模型 ID 独立保存。
+- [x] 增加 Provider 建议补全，命令输入时能补全内置服务商。
 
 ## v0.4：主流服务商接入
 
-- [ ] DeepSeek：按 OpenAI-compatible 接口接入，预设 `deepseek-chat`、`deepseek-reasoner`。
+- [x] DeepSeek：已在 v0.3 按 OpenAI-compatible Provider 接入，预设 `deepseek-chat`、`deepseek-reasoner`。
 - [ ] Qwen / 通义千问：按兼容接口接入，允许用户手动填写模型 ID。
 - [ ] KiMi / Moonshot：按兼容接口接入，允许用户手动填写模型 ID。
 - [ ] GLM / 智谱：按兼容接口接入，允许用户手动填写模型 ID。

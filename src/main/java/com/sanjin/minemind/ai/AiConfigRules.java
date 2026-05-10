@@ -2,7 +2,6 @@ package com.sanjin.minemind.ai;
 
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.util.Locale;
 
 public final class AiConfigRules {
     public static final int DEFAULT_TIMEOUT_SECONDS = 45;
@@ -11,19 +10,12 @@ public final class AiConfigRules {
     public static final int DEFAULT_MAX_HISTORY_MESSAGES = 20;
     public static final int MIN_MAX_HISTORY_MESSAGES = 2;
     public static final int MAX_MAX_HISTORY_MESSAGES = 100;
-    public static final String OPENAI_PROVIDER_ID = "openai";
-    public static final String OPENAI_DISPLAY_NAME = "OpenAI";
-    public static final String OPENAI_DEFAULT_MODEL = "gpt-4.1";
-    public static final String OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
     private AiConfigRules() {
     }
 
     public static String normalizeProviderId(String providerId) {
-        if (providerId == null || providerId.isBlank()) {
-            throw new AiConfigStore.ConfigException("服务商不能为空");
-        }
-        return providerId.trim().toLowerCase(Locale.ROOT);
+        return AiProviderRegistry.normalizeProviderId(providerId);
     }
 
     public static int sanitizeTimeoutSeconds(int value) {
@@ -65,10 +57,9 @@ public final class AiConfigRules {
         if (isHttpUrl(cleaned)) {
             return cleaned;
         }
-        if (OPENAI_PROVIDER_ID.equals(providerId)) {
-            return OPENAI_DEFAULT_BASE_URL;
-        }
-        return "";
+        return AiProviderRegistry.registeredProvider(providerId)
+                .map(AiProvider::defaultBaseUrl)
+                .orElse("");
     }
 
     public static String normalizeBaseUrl(String baseUrl) {

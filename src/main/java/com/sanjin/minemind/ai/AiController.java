@@ -37,10 +37,9 @@ public final class AiController {
 
     public static void onLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
         resetSession();
+        showStartupConfig();
         if (AiConfigStore.isAiMode() && isSingleplayerWorld()) {
-            AiProviderSettings settings = AiConfigStore.currentSettings();
             AiChat.info("已进入 AI 对话模式，输入 /ai off 退出");
-            AiChat.info("当前模型：" + settings.displayName() + " / " + settings.model());
         }
     }
 
@@ -93,9 +92,11 @@ public final class AiController {
 
         int session = SESSION.get();
         AiProviderSettings settings;
+        AiProvider provider;
         List<AiMessage> requestMessages;
         try {
             settings = AiConfigStore.currentSettings();
+            provider = AiProviderRegistry.provider(settings.providerId());
             requestMessages = HISTORY.snapshotWithUser(cleanedPrompt);
         } catch (RuntimeException exception) {
             REQUESTING.set(false);
@@ -108,7 +109,7 @@ public final class AiController {
         try {
             EXECUTOR.execute(() -> {
                 try {
-                    String answer = OpenAiChatClient.complete(settings, requestMessages);
+                    String answer = provider.complete(settings, requestMessages);
                     Minecraft.getInstance().execute(() -> finishSuccess(session, cleanedPrompt, answer));
                 } catch (AiException exception) {
                     Minecraft.getInstance().execute(() -> finishError(session, exception));
@@ -124,6 +125,60 @@ public final class AiController {
     public static void clearHistory() {
         int count = HISTORY.clear();
         AiChat.info("已清空当前对话上下文，共 " + count + " 条");
+    }
+
+    public static void listModels(String providerId) {
+        AiProviderSettings settings;
+        AiProvider provider;
+        try {
+            settings = AiConfigStore.settingsForProvider(providerId);
+            provider = AiProviderRegistry.provider(settings.providerId());
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return;
+        }
+
+        AiChat.info("正在获取模型列表：" + settings.displayName());
+        EXECUTOR.execute(() -> {
+            try {
+                List<String> modelIds = provider.fetchModelIds(settings);
+                Minecraft.getInstance().execute(() -> showModelList(settings, modelIds));
+            } catch (AiException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(exception.getMessage()));
+            } catch (RuntimeException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(AiErrorType.LOCAL.message()));
+            }
+        });
+    }
+
+    public static void selectModel(String providerId, String modelId) {
+        String cleanedModelId = modelId == null ? "" : modelId.trim();
+        if (cleanedModelId.isEmpty()) {
+            AiChat.error("模型 ID 不能为空");
+            return;
+        }
+
+        AiProviderSettings settings;
+        AiProvider provider;
+        try {
+            settings = AiConfigStore.settingsForProvider(providerId);
+            provider = AiProviderRegistry.provider(settings.providerId());
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return;
+        }
+
+        AiChat.info("正在校验模型列表：" + settings.displayName());
+        EXECUTOR.execute(() -> {
+            try {
+                List<String> modelIds = provider.fetchModelIds(settings);
+                Minecraft.getInstance().execute(() -> applyModelSelection(providerId, cleanedModelId, modelIds));
+            } catch (AiException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(exception.getMessage()));
+            } catch (RuntimeException exception) {
+                Minecraft.getInstance().execute(() -> AiChat.error(AiErrorType.LOCAL.message()));
+            }
+        });
     }
 
     public static List<String> statusLines() {
@@ -146,7 +201,6 @@ public final class AiController {
         try {
             HISTORY.addExchange(prompt, answer, AiConfigStore.maxHistoryMessages());
             AiChat.assistant(answer);
-            AiChat.info("请求完成");
         } finally {
             REQUESTING.set(false);
         }
@@ -161,6 +215,71 @@ public final class AiController {
         } finally {
             REQUESTING.set(false);
         }
+    }
+
+    private static void showStartupConfig() {
+        try {
+            AiProviderSettings settings = AiConfigStore.currentSettings();
+            AiChat.infoHighlight("============ MineMind AI 配置 =============");
+            AiChat.info("当前模型：" + modelText(settings));
+            AiChat.info("剩余额度：" + AiQuotaStatus.describe(settings));
+        } catch (RuntimeException exception) {
+            AiChat.infoHighlight("============ MineMind AI 配置 =============");
+            AiChat.info("当前模型：未配置");
+            AiChat.info("剩余额度：未配置");
+        }
+    }
+
+    private static void showModelList(AiProviderSettings settings, List<String> modelIds) {
+        AiChat.infoHighlight("============ MineMind AI 可选模型 =============");
+        AiChat.info("服务商：" + settings.displayName() + " (" + settings.providerId() + ")");
+        AiChat.info("可选型号：" + modelIds.size() + " 个");
+        for (String line : joinModelLines(modelIds)) {
+            AiChat.info(line);
+        }
+    }
+
+    private static void applyModelSelection(String providerId, String modelId, List<String> modelIds) {
+        if (!modelIds.contains(modelId)) {
+            AiChat.error("模型 ID 不在当前服务商可选列表中，请先执行 /ai model <provider> 查看");
+            return;
+        }
+        try {
+            AiConfigStore.setProviderModel(providerId, modelId);
+            AiProviderSettings settings = AiConfigStore.currentSettings();
+            AiChat.info("当前模型已切换为：" + settings.displayName() + " / " + settings.model());
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+        }
+    }
+
+    private static List<String> joinModelLines(List<String> modelIds) {
+        java.util.ArrayList<String> lines = new java.util.ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String modelId : modelIds) {
+            String part = line.isEmpty() ? modelId : ", " + modelId;
+            if (!line.isEmpty() && line.length() + part.length() > 180) {
+                lines.add(line.toString());
+                line.setLength(0);
+                line.append(modelId);
+            } else {
+                line.append(part);
+            }
+        }
+        if (!line.isEmpty()) {
+            lines.add(line.toString());
+        }
+        return lines;
+    }
+
+    private static String modelText(AiProviderSettings settings) {
+        if (settings.model() == null || settings.model().isBlank()) {
+            return "未配置";
+        }
+        if (settings.displayName() == null || settings.displayName().isBlank()) {
+            return settings.model();
+        }
+        return settings.displayName() + " / " + settings.model();
     }
 
     private static void resetSession() {
