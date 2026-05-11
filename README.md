@@ -12,6 +12,7 @@ MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mo
 - 支持每个 Provider 独立保存 API Key、Base URL 和模型 ID。
 - 支持从 Provider 获取可用模型列表，并限制只能切换到列表中的文本对话模型。
 - 支持短期上下文，默认保留最近 20 条消息。
+- 支持玩家显式 `@` 快捷标记读取本地 Minecraft 文本信息，并只附加到本轮请求。
 - 请求异步执行，不阻塞游戏主线程。
 - API Key 只保存在本地配置文件，聊天栏和状态输出只显示尾号。
 
@@ -27,27 +28,20 @@ MineMind 是一个面向 Java 版 Minecraft 单人客户端场景的 NeoForge Mo
 - OpenAI-compatible Chat Completions 数据流
 - Gemini 原生 `generateContent` 文本对话接口
 - OpenAI、DeepSeek、Qwen、KiMi、GLM、Seed、Grok、Gemini
+- 玩家主动触发的快捷栏、背包、位置、附近实体和准星目标文本上下文
 
 暂不支持：
 
 - 多人服务器权限管理、统一计费或玩家管理
-- 工具调用、世界状态读取
+- 模型自主工具调用
 - 图片、语音、嵌入、实时语音等非文本模型能力
 - 长期记忆和跨游戏会话历史
 
 ## 快速开始
 
-### 1. 启动开发客户端
+### 1. 配置 API Key
 
-```bash
-sh gradlew runClient
-```
-
-### 2. 进入单人世界
-
-MineMind v0.x 面向单人游戏测试。进入世界后，聊天栏会显示当前 AI 配置摘要。
-
-### 3. 配置 API Key
+进入单人游戏存档后，需要配置所需AI模型的API Key。示例如下：
 
 OpenAI：
 
@@ -61,20 +55,9 @@ DeepSeek：
 /ai key deepseek <你的 DeepSeek API Key>
 ```
 
-其他内置 Provider：
+### 2. 查看并切换模型
 
-```text
-/ai key qwen <你的 Qwen API Key>
-/ai key kimi <你的 KiMi API Key>
-/ai key glm <你的 GLM API Key>
-/ai key seed <你的 Seed API Key>
-/ai key grok <你的 Grok API Key>
-/ai key gemini <你的 Gemini API Key>
-```
-
-### 4. 查看并切换模型
-
-先获取当前 Provider 可用的文本对话模型列表：
+需要先输入指令获取当前 Provider 可用的文本对话模型列表， 示例：
 
 ```text
 /ai model deepseek
@@ -86,16 +69,27 @@ DeepSeek：
 /ai model deepseek <列表中的模型 ID>
 ```
 
-### 5. 开启 AI 对话模式
+### 3. 开启 AI 对话模式
 
 ```text
 /ai on
 ```
 
-开启后，普通聊天输入会发送给 AI，而不是作为普通聊天消息发送。AI 回复格式示例：
+开启后，普通聊天输入会发送给 AI，而不是作为普通聊天消息发送。请求与回复格式示例：
 
 ```text
+SanJin > 你好
+[AI] 正在等待回复......
 DeepSeek > 你好，请问有什么帮助？
+```
+
+附加本地 Minecraft 信息时，可以在输入中加入快捷标记：
+
+```text
+SanJin > @inventory 我能合成火把吗？
+[AI] 已附加：背包
+[AI] 正在等待回复......
+DeepSeek > 你现在背包里有木棍和煤炭，可以合成火把。
 ```
 
 退出 AI 模式：
@@ -104,7 +98,7 @@ DeepSeek > 你好，请问有什么帮助？
 /ai off
 ```
 
-也可以不进入 AI 模式，直接单次提问：
+当然你也可以不进入 AI 模式，直接单次提问：
 
 ```text
 /ai ask 解释一下红石比较器怎么用
@@ -133,26 +127,41 @@ DeepSeek > 你好，请问有什么帮助？
 | `/ai status` | 查看 AI 模式、请求状态、Provider、模型、Key、上下文等状态 |
 | `/ai clear` | 清空当前会话上下文 |
 
-## Provider
+## 快捷工具
 
-内置 Provider 不再设置默认推荐模型。玩家必须先执行 `/ai model <provider>`，从服务商 API 返回的可用纯文本模型列表中选择型号。
+MineMind v0.5 支持玩家主动触发的本地文本工具。工具只会在本轮请求中附加给模型。
 
-| Provider ID | Display Name | 默认 Base URL | 接口类型 |
-| --- | --- | --- | --- |
-| `openai` | `OpenAI` | `https://api.openai.com/v1` | OpenAI-compatible |
-| `deepseek` | `DeepSeek` | `https://api.deepseek.com` | OpenAI-compatible |
-| `qwen` | `Qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI-compatible |
-| `kimi` | `KiMi` | `https://api.moonshot.ai/v1` | OpenAI-compatible |
-| `glm` | `GLM` | `https://open.bigmodel.cn/api/paas/v4` | OpenAI-compatible |
-| `seed` | `Seed` | `https://ark.cn-beijing.volces.com/api/v3` | OpenAI-compatible |
-| `grok` | `Grok` | `https://api.x.ai/v1` | OpenAI-compatible |
-| `gemini` | `Gemini` | `https://generativelanguage.googleapis.com/v1beta` | Gemini native |
+| 标记 | 附加内容 |
+| --- | --- |
+| `@hotbar` | 读取 9 格快捷栏，包含槽位、物品 ID、显示名、数量、耐久、组件和最多 8 个 tag |
+| `@inventory` | 读取快捷栏、主背包、护甲和副手，合并同类堆叠并限制长度 |
+| `@here` | 读取维度、整数坐标、朝向、生态群系和脚下方块 |
+| `@nearby` | 读取 16 格内客户端可见实体，按类型汇总数量、最近距离、类别和是否敌对 |
+| `@target` | 读取 20 格内准星命中的方块或实体 |
 
-如果你的账号所属平台区域使用不同 API 域名，可以通过 `/ai base <provider> <url>` 覆盖 Base URL。
+使用规则：
+
+- 只有显式输入已知标记才会读取本地信息。
+- 已知标记只要作为独立文本出现即可触发，位置不限。
+- 标记大小写不敏感，未知 `@xxx` 会作为普通文本保留。
+- 同一标记重复出现时只执行一次。
+- `@inventory` 已包含快捷栏信息，同时输入 `@hotbar` 时不会重复附加快捷栏。
+- 只输入工具标记时，MineMind 会发送默认问题：`请根据已附加的 Minecraft 信息进行简短说明。`
+
+聊天区域示意：
+
+```text
+┌──────────── Minecraft 聊天区域 ────────────┐
+│ SanJin > @here @nearby 附近适合建家吗？     │
+│ [AI] 已附加：位置、附近生物                 │
+│ [AI] 正在等待回复......                     │
+│ DeepSeek > 这里地势平稳，但附近有敌对生物... │
+└───────────────────────────────────────────┘
+```
 
 ### 自定义 Provider
 
-配置文件中已有的未知 Provider 会被保留，并按 OpenAI-compatible fallback 处理。自定义 Provider 需要手动配置：
+配置文件中已有的未知 Provider 会被保留，自定义 Provider 需要手动配置：
 
 - API Key
 - Base URL
@@ -265,7 +274,7 @@ DeepSeek > 你好，请问有什么帮助？
 
 ## 错误提示
 
-MineMind 会把常见错误映射为可读中文提示：
+MineMind 常见错误映射提示：
 
 | 类型 | 典型原因 |
 | --- | --- |
@@ -276,54 +285,3 @@ MineMind 会把常见错误映射为可读中文提示：
 | 请求错误 | 参数非法、上下文过长 |
 | 服务错误 | Provider 5xx、模型暂不可用 |
 | 本地错误 | 配置损坏、Base URL 无效、响应解析失败 |
-
-如果你的 API Key 没有额度，聊天栏应显示额度不足或限流相关提示，而不是模型不存在。
-
-## 开发与验证
-
-常用命令：
-
-```bash
-sh gradlew runClient
-sh gradlew runAiSelfTest
-sh gradlew compileJava
-sh gradlew build
-```
-
-推荐提交前至少执行：
-
-```bash
-sh gradlew runAiSelfTest
-sh gradlew compileJava
-sh gradlew build
-```
-
-项目内置轻量自测入口：
-
-```text
-src/test/java/com/sanjin/minemind/ai/AiSelfTest.java
-```
-
-当前自测覆盖：
-
-- Provider 注册表
-- OpenAI、DeepSeek、Qwen、KiMi、GLM、Seed、Grok、Gemini 默认配置
-- timeout / max history 规则
-- Base URL 修复
-- HTTP 错误分类
-- 文本模型过滤
-- 上下文裁剪与清空
-
-## 路线图
-
-下一阶段计划：
-
-- 继续优化聊天帮助、状态展示和错误提示。
-- 添加 README 以外的用户手册和发布检查清单。
-- 建立更完整的手动回归测试矩阵。
-
-长期目标：
-
-- 保持 Minecraft 原版聊天栏作为主要交互入口。
-- 保持客户端本地配置和玩家自有 API Key 模式。
-- 不引入实体、方块、物品等与 AI 对话无关的游戏内容。

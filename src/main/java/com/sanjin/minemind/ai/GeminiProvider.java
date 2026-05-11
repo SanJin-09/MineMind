@@ -59,17 +59,26 @@ public final class GeminiProvider implements AiProvider {
 
         JsonObject body = new JsonObject();
         JsonArray contents = new JsonArray();
+        StringBuilder systemInstruction = new StringBuilder();
         for (AiMessage message : messages) {
+            if ("system".equals(message.role())) {
+                if (!systemInstruction.isEmpty()) {
+                    systemInstruction.append('\n');
+                }
+                systemInstruction.append(message.content());
+                continue;
+            }
+
             JsonObject item = new JsonObject();
             item.addProperty("role", geminiRole(message.role()));
 
-            JsonArray parts = new JsonArray();
-            JsonObject text = new JsonObject();
-            text.addProperty("text", message.content());
-            parts.add(text);
-
-            item.add("parts", parts);
+            item.add("parts", textParts(message.content()));
             contents.add(item);
+        }
+        if (!systemInstruction.isEmpty()) {
+            JsonObject instruction = new JsonObject();
+            instruction.add("parts", textParts(systemInstruction.toString()));
+            body.add("systemInstruction", instruction);
         }
         body.add("contents", contents);
 
@@ -256,6 +265,14 @@ public final class GeminiProvider implements AiProvider {
 
     private static String geminiRole(String role) {
         return "assistant".equals(role) ? "model" : "user";
+    }
+
+    private static JsonArray textParts(String content) {
+        JsonArray parts = new JsonArray();
+        JsonObject text = new JsonObject();
+        text.addProperty("text", content == null ? "" : content);
+        parts.add(text);
+        return parts;
     }
 
     private static String modelId(String value) {

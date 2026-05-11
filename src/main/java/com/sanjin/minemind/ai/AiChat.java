@@ -28,7 +28,7 @@ public final class AiChat {
 
     public static void player(String message) {
         for (String part : split(message)) {
-            add(styledLine("玩家 > ", part, ChatFormatting.GREEN, ChatFormatting.GRAY));
+            add(styledLine(playerName() + " > ", part, ChatFormatting.GREEN, ChatFormatting.GRAY));
         }
     }
 
@@ -58,6 +58,21 @@ public final class AiChat {
             return DEFAULT_PREFIX;
         }
         return DEFAULT_PREFIX;
+    }
+
+    private static String playerName() {
+        try {
+            Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft.player != null) {
+                String name = minecraft.player.getName().getString();
+                if (name != null && !name.isBlank()) {
+                    return name;
+                }
+            }
+        } catch (RuntimeException ignored) {
+            return "玩家";
+        }
+        return "玩家";
     }
 
     private static void add(Component component) {

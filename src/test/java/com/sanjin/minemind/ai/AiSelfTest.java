@@ -14,6 +14,9 @@ public final class AiSelfTest {
         testHttpStatusClassification();
         testResponseBodyErrorClassification();
         testModelCatalogFiltering();
+        testToolRequestParsing();
+        testToolContextFormatting();
+        testPromptInjection();
         testConversationHistory();
         System.out.println("AiSelfTest passed");
     }
@@ -157,6 +160,54 @@ public final class AiSelfTest {
         assertFalse(AiModelCatalog.isTextChatModelId("qwen-omni-turbo"), "qwen omni rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("glm-4v-plus"), "glm vision rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("gemini-2.5-pro-preview-tts"), "gemini tts rejected");
+    }
+
+    private static void testToolRequestParsing() {
+        AiToolRequest request = AiToolRequest.parse("@HOTBAR @inventory @hotbar 我能合成火把吗？ @unknown");
+        assertEquals("我能合成火把吗？ @unknown", request.userPrompt(), "known markers removed and unknown kept");
+        assertEquals(1, request.tools().size(), "inventory deduplicates hotbar");
+        assertEquals(AiToolRequest.Tool.INVENTORY, request.tools().get(0), "inventory remains");
+
+        AiToolRequest onlyTools = AiToolRequest.parse("@here @nearby");
+        assertEquals(AiToolRequest.DEFAULT_PROMPT, onlyTools.userPrompt(), "default prompt for marker-only request");
+        assertEquals(2, onlyTools.tools().size(), "marker-only tools kept");
+
+        AiToolRequest noTools = AiToolRequest.parse("@memory hello");
+        assertEquals("@memory hello", noTools.userPrompt(), "unknown marker remains ordinary text");
+        assertFalse(noTools.hasTools(), "unknown marker does not trigger tools");
+    }
+
+    private static void testToolContextFormatting() {
+        AiToolResult hotbar = new AiToolResult("tool.hotbar.read", "@hotbar", "快捷栏", "slot 1: minecraft:stone x64", false);
+        AiToolContext context = AiToolContext.of(List.of(hotbar));
+        assertTrue(context.hasResults(), "context has result");
+        assertEquals("快捷栏", context.summaryLabels(), "context summary labels");
+        assertTrue(context.toPromptText().contains("Minecraft Tool Context"), "context header");
+        assertTrue(context.toPromptText().contains("tool.hotbar.read"), "context tool id");
+        assertTrue(context.toPromptText().contains("触发标记: @hotbar"), "context trigger marker");
+        assertTrue(context.toPromptText().contains("裁剪: 否"), "context clipping hint");
+
+        String longContent = "x".repeat(AiToolContext.MAX_RESULT_CHARS + 50);
+        AiToolContext truncated = AiToolContext.of(List.of(new AiToolResult("tool.inventory.read", "@inventory", "背包", longContent, false)));
+        assertTrue(truncated.toPromptText().contains("单项工具结果已裁剪"), "single tool result truncates");
+        assertTrue(truncated.toPromptText().contains("裁剪: 是"), "single tool result truncation hint");
+    }
+
+    private static void testPromptInjection() {
+        List<AiMessage> messages = AiPrompt.withSystemPrompt(List.of(new AiMessage("user", "hello")));
+        assertEquals(2, messages.size(), "system prompt prepended");
+        assertEquals("system", messages.get(0).role(), "system prompt role");
+        assertTrue(messages.get(0).content().contains("Minecraft 游戏聊天栏"), "system prompt describes minecraft chat");
+        assertEquals("user", messages.get(1).role(), "user message after system prompt");
+        assertEquals("hello", messages.get(1).content(), "user message preserved");
+
+        AiToolContext context = AiToolContext.of(List.of(new AiToolResult("tool.location.read", "@here", "位置", "x=1,y=2,z=3", false)));
+        List<AiMessage> withTools = AiPrompt.withSystemPrompt(context, List.of(new AiMessage("user", "where")));
+        assertEquals(3, withTools.size(), "tool context inserted after system prompt");
+        assertEquals("system", withTools.get(1).role(), "tool context role");
+        assertTrue(withTools.get(0).content().contains("@here"), "system prompt lists tool marker");
+        assertTrue(withTools.get(1).content().contains("Minecraft Tool Context"), "tool context message");
+        assertEquals("user", withTools.get(2).role(), "user follows tool context");
     }
 
     private static void testConversationHistory() {

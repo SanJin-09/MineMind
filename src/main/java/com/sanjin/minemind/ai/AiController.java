@@ -93,24 +93,35 @@ public final class AiController {
         int session = SESSION.get();
         AiProviderSettings settings;
         AiProvider provider;
+        AiToolRequest toolRequest;
+        AiToolContext toolContext;
         List<AiMessage> requestMessages;
         try {
+            toolRequest = AiToolRequest.parse(cleanedPrompt);
+            toolContext = AiMinecraftTools.collect(toolRequest);
             settings = AiConfigStore.currentSettings();
             provider = AiProviderRegistry.provider(settings.providerId());
-            requestMessages = HISTORY.snapshotWithUser(cleanedPrompt);
+            requestMessages = AiPrompt.withSystemPrompt(toolContext, HISTORY.snapshotWithUser(toolRequest.userPrompt()));
+        } catch (AiMinecraftTools.AiToolException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地工具读取失败，请重试");
+            return;
         } catch (RuntimeException exception) {
             REQUESTING.set(false);
             AiChat.error("本地配置或运行状态异常");
             return;
         }
         AiChat.player(cleanedPrompt);
-        AiChat.info("正在请求：" + settings.displayName() + " / " + settings.model());
+        if (toolContext.hasResults()) {
+            AiChat.info("已附加：" + toolContext.summaryLabels());
+        }
+        AiChat.info("正在等待回复......");
 
         try {
             EXECUTOR.execute(() -> {
                 try {
                     String answer = provider.complete(settings, requestMessages);
-                    Minecraft.getInstance().execute(() -> finishSuccess(session, cleanedPrompt, answer));
+                    Minecraft.getInstance().execute(() -> finishSuccess(session, toolRequest.userPrompt(), answer));
                 } catch (AiException exception) {
                     Minecraft.getInstance().execute(() -> finishError(session, exception));
                 } catch (RuntimeException exception) {
