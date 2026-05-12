@@ -32,6 +32,15 @@ public final class AiToolContext {
         return !results.isEmpty();
     }
 
+    public AiToolContext append(AiToolResult result) {
+        if (result == null) {
+            return this;
+        }
+        List<AiToolResult> appended = new ArrayList<>(results);
+        appended.add(result);
+        return of(appended);
+    }
+
     public String summaryLabels() {
         List<String> labels = new ArrayList<>();
         for (AiToolResult result : results) {

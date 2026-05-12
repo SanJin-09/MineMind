@@ -60,7 +60,7 @@ public final class AiChat {
         return DEFAULT_PREFIX;
     }
 
-    private static String playerName() {
+    static String playerName() {
         try {
             Minecraft minecraft = Minecraft.getInstance();
             if (minecraft.player != null) {

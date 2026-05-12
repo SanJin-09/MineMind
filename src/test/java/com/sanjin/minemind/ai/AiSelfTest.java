@@ -1,6 +1,12 @@
 package com.sanjin.minemind.ai;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Stream;
 
 public final class AiSelfTest {
     private AiSelfTest() {
@@ -15,7 +21,11 @@ public final class AiSelfTest {
         testResponseBodyErrorClassification();
         testModelCatalogFiltering();
         testToolRequestParsing();
+        testMemoryRequestParsing();
         testToolContextFormatting();
+        testMemoryDraft();
+        testMemoryForgetDraft();
+        testMemoryStore();
         testPromptInjection();
         testConversationHistory();
         System.out.println("AiSelfTest passed");
@@ -172,9 +182,61 @@ public final class AiSelfTest {
         assertEquals(AiToolRequest.DEFAULT_PROMPT, onlyTools.userPrompt(), "default prompt for marker-only request");
         assertEquals(2, onlyTools.tools().size(), "marker-only tools kept");
 
-        AiToolRequest noTools = AiToolRequest.parse("@memory hello");
-        assertEquals("@memory hello", noTools.userPrompt(), "unknown marker remains ordinary text");
+        AiToolRequest noTools = AiToolRequest.parse("@unknown hello");
+        assertEquals("@unknown hello", noTools.userPrompt(), "unknown marker remains ordinary text");
         assertFalse(noTools.hasTools(), "unknown marker does not trigger tools");
+    }
+
+    private static void testMemoryRequestParsing() {
+        AiToolRequest remember = AiToolRequest.parse("@remember @here 我的基地在樱花林旁边");
+        assertTrue(remember.hasMemoryAction(), "remember action detected");
+        assertEquals(AiToolRequest.MemoryAction.REMEMBER, remember.memoryAction(), "remember action");
+        assertEquals("我的基地在樱花林旁边", remember.memoryActionText(), "remember content");
+        assertEquals("我的基地在樱花林旁边", remember.userPrompt(), "remember tool marker removed");
+        assertEquals(1, remember.tools().size(), "remember tool kept");
+        assertEquals(AiToolRequest.Tool.HERE, remember.tools().get(0), "remember here tool");
+
+        AiToolRequest rememberInventory = AiToolRequest.parse("@remember @inventory @hotbar 记住我的物资");
+        assertEquals("记住我的物资", rememberInventory.userPrompt(), "remember inventory prompt");
+        assertEquals(1, rememberInventory.tools().size(), "remember inventory deduplicates hotbar");
+        assertEquals(AiToolRequest.Tool.INVENTORY, rememberInventory.tools().get(0), "remember inventory remains");
+
+        AiToolRequest rememberMemory = AiToolRequest.parse("@remember @memory foo");
+        assertFalse(rememberMemory.memoryRequested(), "remember does not trigger memory read");
+        assertEquals("@memory foo", rememberMemory.userPrompt(), "remember keeps memory marker as text");
+        assertEquals(0, rememberMemory.tools().size(), "remember memory marker not treated as local tool");
+
+        AiToolRequest rememberOnlyTool = AiToolRequest.parse("@remember @here");
+        assertEquals(AiToolRequest.DEFAULT_REMEMBER_PROMPT, rememberOnlyTool.userPrompt(), "remember tool-only default prompt");
+        assertEquals(1, rememberOnlyTool.tools().size(), "remember tool-only keeps tool");
+
+        AiToolRequest forget = AiToolRequest.parse("@FORGET @here 删除当前基地位置");
+        assertTrue(forget.hasMemoryAction(), "forget action detected");
+        assertEquals(AiToolRequest.MemoryAction.FORGET, forget.memoryAction(), "forget action");
+        assertEquals("删除当前基地位置", forget.memoryActionText(), "forget prompt");
+        assertEquals("删除当前基地位置", forget.userPrompt(), "forget tool marker removed");
+        assertEquals(1, forget.tools().size(), "forget tool kept");
+        assertEquals(AiToolRequest.Tool.HERE, forget.tools().get(0), "forget here tool");
+
+        AiToolRequest forgetMemory = AiToolRequest.parse("@forget @memory foo");
+        assertFalse(forgetMemory.memoryRequested(), "forget does not trigger memory read");
+        assertEquals("@memory foo", forgetMemory.userPrompt(), "forget keeps memory marker as text");
+
+        AiToolRequest forgetOnlyTool = AiToolRequest.parse("@forget @target");
+        assertEquals(AiToolRequest.DEFAULT_FORGET_PROMPT, forgetOnlyTool.userPrompt(), "forget tool-only default prompt");
+        assertEquals(1, forgetOnlyTool.tools().size(), "forget tool-only keeps tool");
+
+        AiToolRequest memory = AiToolRequest.parse("我的基地在哪里？ @MEMORY @unknown");
+        assertTrue(memory.memoryRequested(), "memory marker detected");
+        assertEquals("我的基地在哪里？ @unknown", memory.userPrompt(), "memory marker removed");
+
+        AiToolRequest onlyMemory = AiToolRequest.parse("@memory");
+        assertTrue(onlyMemory.memoryRequested(), "memory-only marker detected");
+        assertEquals(AiToolRequest.DEFAULT_MEMORY_PROMPT, onlyMemory.userPrompt(), "memory-only default prompt");
+
+        AiToolRequest middleRemember = AiToolRequest.parse("请解释 @remember foo");
+        assertFalse(middleRemember.hasMemoryAction(), "remember only acts at prompt start");
+        assertEquals("请解释 @remember foo", middleRemember.userPrompt(), "middle remember remains ordinary text");
     }
 
     private static void testToolContextFormatting() {
@@ -191,6 +253,117 @@ public final class AiSelfTest {
         AiToolContext truncated = AiToolContext.of(List.of(new AiToolResult("tool.inventory.read", "@inventory", "背包", longContent, false)));
         assertTrue(truncated.toPromptText().contains("单项工具结果已裁剪"), "single tool result truncates");
         assertTrue(truncated.toPromptText().contains("裁剪: 是"), "single tool result truncation hint");
+
+        AiToolContext appended = context.append(new AiToolResult("tool.memory.read", "@memory", "长期记忆", "base in forest", false));
+        assertEquals("快捷栏、长期记忆", appended.summaryLabels(), "context append memory label");
+    }
+
+    private static void testMemoryDraft() {
+        assertEquals("我的基地在樱花林旁边。", AiMemoryDraft.parseMemory("{\"memory\":\"我的基地在樱花林旁边。\"}"), "draft parses json");
+        assertEquals("基地坐标 x=1 y=2 z=3。", AiMemoryDraft.parseMemory("""
+                ```json
+                {"memory":"基地坐标 x=1 y=2 z=3。"}
+                ```
+                """), "draft parses fenced json");
+
+        AiToolContext context = AiToolContext.of(List.of(new AiToolResult("tool.location.read", "@here", "位置", "x=1,y=2,z=3", false)));
+        List<AiMessage> messages = AiMemoryDraft.messages(context, "我的基地在这里");
+        assertEquals(3, messages.size(), "draft messages include tool context");
+        assertEquals("system", messages.get(0).role(), "draft system role");
+        assertTrue(messages.get(0).content().contains("JSON"), "draft system requires json");
+        assertTrue(messages.get(1).content().contains("Minecraft Tool Context"), "draft includes tool context");
+        assertEquals("我的基地在这里", messages.get(2).content(), "draft user prompt");
+
+        assertThrowsDraft(() -> AiMemoryDraft.parseMemory("{\"memory\":\"\"}"), "draft rejects blank memory");
+        assertThrowsDraft(() -> AiMemoryDraft.parseMemory("{\"text\":\"foo\"}"), "draft rejects missing memory");
+        assertThrowsDraft(() -> AiMemoryDraft.parseMemory("not json"), "draft rejects invalid json");
+        assertThrowsDraft(() -> AiMemoryDraft.parseMemory("{\"memory\":\"" + "x".repeat(501) + "\"}"), "draft rejects too long memory");
+    }
+
+    private static void testMemoryForgetDraft() {
+        List<AiMemoryStore.MemoryDeletionCandidate> candidates = List.of(
+                new AiMemoryStore.MemoryDeletionCandidate(1, "2026-05-12 14:30 | 玩家: SanJin | 我的基地在樱花林旁边"),
+                new AiMemoryStore.MemoryDeletionCandidate(3, "2026-05-13 09:00 | 玩家: SanJin | 我把钻石放在矿洞箱子")
+        );
+
+        assertEquals(List.of(1, 3), AiMemoryForgetDraft.parseDeleteIds("{\"delete\":[1,3],\"reason\":\"删除基地和箱子记录\"}", candidates), "forget draft parses ids");
+        assertEquals(List.of(3), AiMemoryForgetDraft.parseDeleteIds("""
+                ```json
+                {"delete":[3],"reason":"删除物资记录"}
+                ```
+                """, candidates), "forget draft parses fenced ids");
+        assertEquals(List.of(), AiMemoryForgetDraft.parseDeleteIds("{\"delete\":[],\"reason\":\"没有匹配项\"}", candidates), "forget draft allows empty delete");
+
+        AiToolContext context = AiToolContext.of(List.of(new AiToolResult("tool.location.read", "@here", "位置", "x=1,y=2,z=3", false)));
+        List<AiMessage> messages = AiMemoryForgetDraft.messages(context, candidates, "删除当前基地位置");
+        assertEquals(4, messages.size(), "forget draft messages include tool and candidates");
+        assertTrue(messages.get(0).content().contains("delete"), "forget draft system requires delete json");
+        assertTrue(messages.get(1).content().contains("Minecraft Tool Context"), "forget draft includes tool context");
+        assertTrue(messages.get(2).content().contains("ID 1"), "forget draft includes candidate ids");
+        assertEquals("删除当前基地位置", messages.get(3).content(), "forget draft user prompt");
+
+        assertThrowsForgetDraft(() -> AiMemoryForgetDraft.parseDeleteIds("{\"delete\":[2],\"reason\":\"bad\"}", candidates), "forget draft rejects unknown id");
+        assertThrowsForgetDraft(() -> AiMemoryForgetDraft.parseDeleteIds("{\"ids\":[1]}", candidates), "forget draft rejects missing delete");
+        assertThrowsForgetDraft(() -> AiMemoryForgetDraft.parseDeleteIds("not json", candidates), "forget draft rejects invalid json");
+    }
+
+    private static void testMemoryStore() {
+        Path directory = tempDirectory();
+        try {
+            Path file = directory.resolve("minemind-memory.md");
+            AiMemoryStore.MemoryWriteResult result = AiMemoryStore.remember(
+                    file,
+                    "SanJin",
+                    "我的基地在樱花林旁边",
+                    LocalDateTime.of(2026, 5, 12, 14, 30)
+            );
+            AiMemoryStore.remember(
+                    file,
+                    "SanJin",
+                    "我把钻石放在矿洞箱子",
+                    LocalDateTime.of(2026, 5, 13, 9, 0)
+            );
+
+            assertEquals("2026-05-12", result.date(), "memory write date");
+            assertEquals("我的基地在樱花林旁边", result.content(), "memory write content");
+            String fileText = readString(file);
+            assertTrue(fileText.contains("# MineMind Long-term Memory"), "memory file header");
+            assertTrue(fileText.contains("## 2026-05-12"), "memory date heading");
+            assertTrue(fileText.contains("- 2026-05-12 14:30 | 玩家: SanJin | 我的基地在樱花林旁边"), "memory entry format");
+
+            String relevant = AiMemoryStore.readRelevant(file, "我的基地在哪里？", 20);
+            assertTrue(relevant.contains("樱花林"), "memory keyword match");
+            assertTrue(relevant.contains("钻石"), "memory recent fill");
+
+            String limited = AiMemoryStore.readRelevant(file, "", 1);
+            assertTrue(limited.contains("钻石"), "memory recent limit keeps newest");
+            assertFalse(limited.contains("樱花林"), "memory recent limit clips older");
+
+            List<AiMemoryStore.MemoryDeletionCandidate> candidates = AiMemoryStore.deletionCandidates(file, "基地", 20);
+            assertEquals(2, candidates.size(), "memory deletion candidates include match and recent");
+            assertEquals(1, candidates.get(0).id(), "memory deletion candidate keeps original id");
+            assertTrue(candidates.get(0).text().contains("樱花林"), "memory deletion candidate match first");
+
+            AiMemoryStore.MemoryDeleteResult deleteResult = AiMemoryStore.forgetByIds(file, List.of(1));
+            assertEquals(1, deleteResult.count(), "memory forget by ids removes one");
+            assertTrue(deleteResult.summary().contains("樱花林"), "memory forget by ids summary");
+            assertFalse(readString(file).contains("樱花林"), "memory forget by ids removes content");
+
+            AiMemoryStore.remember(
+                    file,
+                    "SanJin",
+                    "我的基地在樱花林旁边",
+                    LocalDateTime.of(2026, 5, 14, 9, 0)
+            );
+            assertEquals(1, AiMemoryStore.forget(file, "樱花林"), "memory forget removes one");
+            assertEquals(0, AiMemoryStore.forget(file, "不存在"), "memory forget missing returns zero");
+            assertFalse(readString(file).contains("樱花林"), "memory forget removes content");
+
+            assertThrowsMemory(() -> AiMemoryStore.remember(file, "SanJin", " ", LocalDateTime.of(2026, 5, 12, 14, 30)), "blank remember rejected");
+            assertThrowsMemory(() -> AiMemoryStore.forget(file, " "), "blank forget rejected");
+        } finally {
+            deleteRecursively(directory);
+        }
     }
 
     private static void testPromptInjection() {
@@ -198,6 +371,7 @@ public final class AiSelfTest {
         assertEquals(2, messages.size(), "system prompt prepended");
         assertEquals("system", messages.get(0).role(), "system prompt role");
         assertTrue(messages.get(0).content().contains("Minecraft 游戏聊天栏"), "system prompt describes minecraft chat");
+        assertTrue(messages.get(0).content().contains("@memory"), "system prompt lists memory marker");
         assertEquals("user", messages.get(1).role(), "user message after system prompt");
         assertEquals("hello", messages.get(1).content(), "user message preserved");
 
@@ -256,6 +430,66 @@ public final class AiSelfTest {
     private static void assertNotContains(List<String> values, String expected, String label) {
         if (values.contains(expected)) {
             throw new AssertionError(label + ": expected list to omit <" + expected + "> but was <" + values + ">");
+        }
+    }
+
+    private static void assertThrowsMemory(Runnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiMemoryStore.MemoryException exception) {
+            return;
+        }
+        throw new AssertionError(label + ": expected memory exception");
+    }
+
+    private static void assertThrowsDraft(Runnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiMemoryDraft.DraftException exception) {
+            return;
+        }
+        throw new AssertionError(label + ": expected draft exception");
+    }
+
+    private static void assertThrowsForgetDraft(Runnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiMemoryForgetDraft.DraftException exception) {
+            return;
+        }
+        throw new AssertionError(label + ": expected forget draft exception");
+    }
+
+    private static Path tempDirectory() {
+        try {
+            return Files.createTempDirectory("minemind-memory-test");
+        } catch (IOException exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    private static String readString(Path path) {
+        try {
+            return Files.readString(path);
+        } catch (IOException exception) {
+            throw new RuntimeException(exception);
+        }
+    }
+
+    private static void deleteRecursively(Path path) {
+        if (path == null || Files.notExists(path)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(path)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(value -> {
+                try {
+                    Files.deleteIfExists(value);
+                } catch (IOException exception) {
+                    throw new RuntimeException(exception);
+                }
+            });
+        } catch (IOException exception) {
+            throw new RuntimeException(exception);
         }
     }
 }

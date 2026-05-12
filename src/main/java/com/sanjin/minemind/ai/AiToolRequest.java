@@ -10,21 +10,86 @@ import java.util.regex.Pattern;
 
 public final class AiToolRequest {
     public static final String DEFAULT_PROMPT = "请根据已附加的 Minecraft 信息进行简短说明。";
-    private static final Pattern TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target)(?!\\S)");
+    public static final String DEFAULT_MEMORY_PROMPT = "请根据已附加的长期记忆进行简短说明。";
+    public static final String DEFAULT_REMEMBER_PROMPT = "请根据已附加的 Minecraft 信息整理一条长期记忆。";
+    public static final String DEFAULT_FORGET_PROMPT = "请根据已附加的 Minecraft 信息判断需要删除的长期记忆。";
+    private static final Pattern MEMORY_ACTION = Pattern.compile("(?i)^@(remember|forget)(?:\\s+(.*))?$");
+    private static final Pattern TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target|memory)(?!\\S)");
+    private static final Pattern LOCAL_TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target)(?!\\S)");
 
     private final String originalPrompt;
     private final String userPrompt;
     private final List<Tool> tools;
+    private final boolean memoryRequested;
+    private final MemoryAction memoryAction;
+    private final String memoryActionText;
 
-    private AiToolRequest(String originalPrompt, String userPrompt, List<Tool> tools) {
+    private AiToolRequest(
+            String originalPrompt,
+            String userPrompt,
+            List<Tool> tools,
+            boolean memoryRequested,
+            MemoryAction memoryAction,
+            String memoryActionText
+    ) {
         this.originalPrompt = originalPrompt;
         this.userPrompt = userPrompt;
         this.tools = List.copyOf(tools);
+        this.memoryRequested = memoryRequested;
+        this.memoryAction = memoryAction;
+        this.memoryActionText = memoryActionText == null ? "" : memoryActionText.trim();
     }
 
     public static AiToolRequest parse(String prompt) {
         String original = prompt == null ? "" : prompt.trim();
+        Matcher actionMatcher = MEMORY_ACTION.matcher(original);
+        if (actionMatcher.matches()) {
+            MemoryAction action = MemoryAction.fromMarker(actionMatcher.group(1));
+            String content = actionMatcher.group(2) == null ? "" : actionMatcher.group(2).trim();
+            if (action == MemoryAction.REMEMBER || action == MemoryAction.FORGET) {
+                ParsedLocalTools parsed = parseLocalTools(content);
+                String userPrompt = parsed.userPrompt();
+                if (userPrompt.isBlank() && !parsed.tools().isEmpty()) {
+                    userPrompt = action == MemoryAction.REMEMBER ? DEFAULT_REMEMBER_PROMPT : DEFAULT_FORGET_PROMPT;
+                }
+                return new AiToolRequest(original, userPrompt, parsed.tools(), false, action, userPrompt);
+            }
+            return new AiToolRequest(original, content, List.of(), false, action, content);
+        }
+
         Matcher matcher = TOOL_MARKER.matcher(original);
+        Set<Tool> tools = new LinkedHashSet<>();
+        StringBuilder cleaned = new StringBuilder();
+        boolean memoryRequested = false;
+        while (matcher.find()) {
+            String marker = matcher.group(1);
+            if ("memory".equalsIgnoreCase(marker)) {
+                memoryRequested = true;
+                matcher.appendReplacement(cleaned, " ");
+                continue;
+            }
+
+            Tool tool = Tool.fromMarker(marker);
+            if (tool != null) {
+                tools.add(tool);
+                matcher.appendReplacement(cleaned, " ");
+            }
+        }
+        matcher.appendTail(cleaned);
+        if (tools.contains(Tool.INVENTORY)) {
+            tools.remove(Tool.HOTBAR);
+        }
+
+        String userPrompt = cleaned.toString().replaceAll("\\s+", " ").trim();
+        if (userPrompt.isBlank() && (!tools.isEmpty() || memoryRequested)) {
+            userPrompt = memoryRequested && tools.isEmpty() ? DEFAULT_MEMORY_PROMPT : DEFAULT_PROMPT;
+        }
+        return new AiToolRequest(original, userPrompt, new ArrayList<>(tools), memoryRequested, null, "");
+    }
+
+    private static ParsedLocalTools parseLocalTools(String prompt) {
+        String original = prompt == null ? "" : prompt.trim();
+        Matcher matcher = LOCAL_TOOL_MARKER.matcher(original);
         Set<Tool> tools = new LinkedHashSet<>();
         StringBuilder cleaned = new StringBuilder();
         while (matcher.find()) {
@@ -38,12 +103,7 @@ public final class AiToolRequest {
         if (tools.contains(Tool.INVENTORY)) {
             tools.remove(Tool.HOTBAR);
         }
-
-        String userPrompt = cleaned.toString().replaceAll("\\s+", " ").trim();
-        if (userPrompt.isBlank() && !tools.isEmpty()) {
-            userPrompt = DEFAULT_PROMPT;
-        }
-        return new AiToolRequest(original, userPrompt, new ArrayList<>(tools));
+        return new ParsedLocalTools(cleaned.toString().replaceAll("\\s+", " ").trim(), new ArrayList<>(tools));
     }
 
     public String originalPrompt() {
@@ -60,6 +120,38 @@ public final class AiToolRequest {
 
     public boolean hasTools() {
         return !tools.isEmpty();
+    }
+
+    public boolean memoryRequested() {
+        return memoryRequested;
+    }
+
+    public boolean hasMemoryAction() {
+        return memoryAction != null;
+    }
+
+    public MemoryAction memoryAction() {
+        return memoryAction;
+    }
+
+    public String memoryActionText() {
+        return memoryActionText;
+    }
+
+    public enum MemoryAction {
+        REMEMBER,
+        FORGET;
+
+        private static MemoryAction fromMarker(String marker) {
+            if (marker == null) {
+                return null;
+            }
+            return switch (marker.toLowerCase(Locale.ROOT)) {
+                case "remember" -> REMEMBER;
+                case "forget" -> FORGET;
+                default -> null;
+            };
+        }
     }
 
     public enum Tool {
@@ -105,5 +197,8 @@ public final class AiToolRequest {
                 default -> null;
             };
         }
+    }
+
+    private record ParsedLocalTools(String userPrompt, List<Tool> tools) {
     }
 }

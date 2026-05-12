@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -85,6 +86,11 @@ public final class AiController {
             AiChat.error("提问内容不能为空");
             return;
         }
+        AiToolRequest parsedRequest = AiToolRequest.parse(cleanedPrompt);
+        if (parsedRequest.hasMemoryAction()) {
+            handleMemoryAction(cleanedPrompt, parsedRequest);
+            return;
+        }
         if (!REQUESTING.compareAndSet(false, true)) {
             AiChat.error("已有 AI 请求处理中，请稍后再试");
             return;
@@ -97,14 +103,21 @@ public final class AiController {
         AiToolContext toolContext;
         List<AiMessage> requestMessages;
         try {
-            toolRequest = AiToolRequest.parse(cleanedPrompt);
+            toolRequest = parsedRequest;
             toolContext = AiMinecraftTools.collect(toolRequest);
+            if (toolRequest.memoryRequested()) {
+                toolContext = toolContext.append(AiMemoryStore.readContextResult(toolRequest.userPrompt()));
+            }
             settings = AiConfigStore.currentSettings();
             provider = AiProviderRegistry.provider(settings.providerId());
             requestMessages = AiPrompt.withSystemPrompt(toolContext, HISTORY.snapshotWithUser(toolRequest.userPrompt()));
         } catch (AiMinecraftTools.AiToolException exception) {
             REQUESTING.set(false);
             AiChat.error("本地工具读取失败，请重试");
+            return;
+        } catch (AiMemoryStore.MemoryException exception) {
+            REQUESTING.set(false);
+            AiChat.error(exception.getMessage());
             return;
         } catch (RuntimeException exception) {
             REQUESTING.set(false);
@@ -130,6 +143,143 @@ public final class AiController {
             });
         } catch (RuntimeException exception) {
             finishError(session, new AiException(AiErrorType.LOCAL));
+        }
+    }
+
+    private static void handleMemoryAction(String originalPrompt, AiToolRequest request) {
+        if (request.memoryAction() == AiToolRequest.MemoryAction.REMEMBER) {
+            rememberWithModel(originalPrompt, request);
+            return;
+        }
+
+        forgetWithModel(originalPrompt, request);
+    }
+
+    private static void forgetWithModel(String originalPrompt, AiToolRequest request) {
+        AiChat.player(originalPrompt);
+        if (request.userPrompt().isBlank() && !request.hasTools()) {
+            AiChat.error("遗忘内容不能为空");
+            return;
+        }
+        if (!REQUESTING.compareAndSet(false, true)) {
+            AiChat.error("已有 AI 请求处理中，请稍后再试");
+            return;
+        }
+
+        int session = SESSION.get();
+        LocalDateTime recordTime = LocalDateTime.now();
+        AiProviderSettings settings;
+        AiProvider provider;
+        AiToolContext toolContext;
+        List<AiMemoryStore.MemoryDeletionCandidate> candidates;
+        List<AiMessage> requestMessages;
+        try {
+            toolContext = AiMinecraftTools.collect(request);
+            candidates = AiMemoryStore.deletionCandidates(request.userPrompt());
+            if (candidates.isEmpty()) {
+                REQUESTING.set(false);
+                AiChat.info("长期记忆为空，无需删除");
+                return;
+            }
+            settings = AiConfigStore.currentSettings();
+            provider = AiProviderRegistry.provider(settings.providerId());
+            requestMessages = AiMemoryForgetDraft.messages(toolContext, candidates, request.userPrompt());
+        } catch (AiMinecraftTools.AiToolException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地工具读取失败，请重试");
+            return;
+        } catch (AiMemoryStore.MemoryException exception) {
+            REQUESTING.set(false);
+            AiChat.error(exception.getMessage());
+            return;
+        } catch (RuntimeException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地配置或运行状态异常");
+            return;
+        }
+
+        AiChat.info("尝试记忆删除，记录日期：" + recordTime.toLocalDate());
+        AiChat.info("已附加：" + attachedMemoryText(toolContext));
+
+        try {
+            EXECUTOR.execute(() -> {
+                try {
+                    String answer = provider.complete(settings, requestMessages);
+                    List<Integer> ids = AiMemoryForgetDraft.parseDeleteIds(answer, candidates);
+                    AiMemoryStore.MemoryDeleteResult result = AiMemoryStore.forgetByIds(ids);
+                    Minecraft.getInstance().execute(() -> finishForgetSuccess(session, result));
+                } catch (AiException exception) {
+                    Minecraft.getInstance().execute(() -> finishForgetAiError(session, exception));
+                } catch (AiMemoryForgetDraft.DraftException exception) {
+                    Minecraft.getInstance().execute(() -> finishForgetDraftError(session));
+                } catch (AiMemoryStore.MemoryException exception) {
+                    Minecraft.getInstance().execute(() -> finishForgetMemoryError(session, exception));
+                } catch (RuntimeException exception) {
+                    Minecraft.getInstance().execute(() -> finishForgetRuntimeError(session));
+                }
+            });
+        } catch (RuntimeException exception) {
+            finishForgetRuntimeError(session);
+        }
+    }
+
+    private static void rememberWithModel(String originalPrompt, AiToolRequest request) {
+        AiChat.player(originalPrompt);
+        if (request.userPrompt().isBlank() && !request.hasTools()) {
+            AiChat.error("记忆内容不能为空");
+            return;
+        }
+        if (!REQUESTING.compareAndSet(false, true)) {
+            AiChat.error("已有 AI 请求处理中，请稍后再试");
+            return;
+        }
+
+        int session = SESSION.get();
+        LocalDateTime recordTime = LocalDateTime.now();
+        String playerName = AiChat.playerName();
+        AiProviderSettings settings;
+        AiProvider provider;
+        AiToolContext toolContext;
+        List<AiMessage> requestMessages;
+        try {
+            toolContext = AiMinecraftTools.collect(request);
+            settings = AiConfigStore.currentSettings();
+            provider = AiProviderRegistry.provider(settings.providerId());
+            requestMessages = AiMemoryDraft.messages(toolContext, request.userPrompt());
+        } catch (AiMinecraftTools.AiToolException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地工具读取失败，请重试");
+            return;
+        } catch (RuntimeException exception) {
+            REQUESTING.set(false);
+            AiChat.error("本地配置或运行状态异常");
+            return;
+        }
+
+        AiChat.info("尝试记忆写入，记录日期：" + recordTime.toLocalDate());
+        if (toolContext.hasResults()) {
+            AiChat.info("已附加：" + toolContext.summaryLabels());
+        }
+
+        try {
+            EXECUTOR.execute(() -> {
+                try {
+                    String answer = provider.complete(settings, requestMessages);
+                    String memory = AiMemoryDraft.parseMemory(answer);
+                    AiMemoryStore.MemoryWriteResult result = AiMemoryStore.remember(playerName, memory, recordTime);
+                    Minecraft.getInstance().execute(() -> finishRememberSuccess(session, result));
+                } catch (AiException exception) {
+                    Minecraft.getInstance().execute(() -> finishRememberAiError(session, exception));
+                } catch (AiMemoryDraft.DraftException exception) {
+                    Minecraft.getInstance().execute(() -> finishRememberDraftError(session));
+                } catch (AiMemoryStore.MemoryException exception) {
+                    Minecraft.getInstance().execute(() -> finishRememberMemoryError(session, exception));
+                } catch (RuntimeException exception) {
+                    Minecraft.getInstance().execute(() -> finishRememberRuntimeError(session));
+                }
+            });
+        } catch (RuntimeException exception) {
+            finishRememberRuntimeError(session);
         }
     }
 
@@ -232,6 +382,129 @@ public final class AiController {
         } finally {
             REQUESTING.set(false);
         }
+    }
+
+    private static void finishRememberSuccess(int session, AiMemoryStore.MemoryWriteResult result) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.info("记忆成功写入！本次写入内容：" + result.content());
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishRememberAiError(int session, AiException exception) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error(exception.getMessage());
+            AiChat.error("本次记忆写入失败，请检查网络环境或 API 余额后重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishRememberDraftError(int session) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error("记忆整理失败，请重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishRememberMemoryError(int session, AiMemoryStore.MemoryException exception) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error(exception.getMessage());
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishRememberRuntimeError(int session) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error("本次记忆写入失败，请检查网络环境或 API 余额后重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishForgetSuccess(int session, AiMemoryStore.MemoryDeleteResult result) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            if (result.count() <= 0) {
+                AiChat.info("记忆删除完成！本次删除内容：无");
+            } else {
+                AiChat.info("记忆成功删除！本次删除内容：" + result.summary());
+            }
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishForgetAiError(int session, AiException exception) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error(exception.getMessage());
+            AiChat.error("本次记忆删除失败，请检查网络环境或 API 余额后重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishForgetDraftError(int session) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error("记忆删除整理失败，请重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishForgetMemoryError(int session, AiMemoryStore.MemoryException exception) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error(exception.getMessage());
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static void finishForgetRuntimeError(int session) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error("本次记忆删除失败，请检查网络环境或 API 余额后重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
+    private static String attachedMemoryText(AiToolContext toolContext) {
+        if (toolContext != null && toolContext.hasResults()) {
+            return "长期记忆、" + toolContext.summaryLabels();
+        }
+        return "长期记忆";
     }
 
     private static void showStartupConfig() {
