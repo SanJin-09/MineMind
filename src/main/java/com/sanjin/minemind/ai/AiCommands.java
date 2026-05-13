@@ -87,6 +87,7 @@ public final class AiCommands {
         AiChat.info("/ai image-quality [low|medium|high] - 查看或设置截图质量");
         AiChat.info("/ai status - 查看连接状态");
         AiChat.info("/ai clear - 清空当前对话上下文");
+        AiChat.info("模型可自主调用本地文本工具，聊天栏会提示调用结果");
         AiChat.info("聊天中使用 @image 可附带当前游戏画面，需要当前模型支持图片输入");
         return 1;
     }

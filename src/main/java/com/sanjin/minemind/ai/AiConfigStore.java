@@ -135,6 +135,7 @@ public final class AiConfigStore {
         lines.add("AI 模式：" + (data.aiMode ? "已开启" : "已关闭"));
         lines.add("单人世界：" + (singleplayerWorld ? "是" : "否"));
         lines.add("请求状态：" + (requesting ? "处理中" : "空闲"));
+        lines.add("模型自主工具：已开启");
         lines.add("当前服务商：" + current.displayName + " (" + data.currentProvider + ")");
         lines.add("当前模型：" + emptyText(current.model, "未设置"));
         lines.add("当前 Base URL：" + emptyText(current.baseUrl, "未设置"));

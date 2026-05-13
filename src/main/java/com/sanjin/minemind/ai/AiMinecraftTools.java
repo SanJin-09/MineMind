@@ -44,22 +44,25 @@ public final class AiMinecraftTools {
         if (request == null || !request.hasTools()) {
             return AiToolContext.empty();
         }
+        List<AiToolResult> results = new ArrayList<>();
+        for (AiToolRequest.Tool tool : request.tools()) {
+            results.add(collect(tool));
+        }
+        return AiToolContext.of(results);
+    }
+
+    public static AiToolResult collect(AiToolRequest.Tool tool) {
         Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.player == null || minecraft.level == null) {
             throw new AiToolException();
         }
-
-        List<AiToolResult> results = new ArrayList<>();
-        for (AiToolRequest.Tool tool : request.tools()) {
-            results.add(switch (tool) {
-                case HOTBAR -> result(tool, readHotbar(minecraft.player));
-                case INVENTORY -> result(tool, readInventory(minecraft.player));
-                case HERE -> result(tool, readLocation(minecraft.player, minecraft.level));
-                case NEARBY -> result(tool, readNearbyEntities(minecraft.player, minecraft.level));
-                case TARGET -> result(tool, readTarget(minecraft));
-            });
-        }
-        return AiToolContext.of(results);
+        return switch (tool) {
+            case HOTBAR -> result(tool, readHotbar(minecraft.player));
+            case INVENTORY -> result(tool, readInventory(minecraft.player));
+            case HERE -> result(tool, readLocation(minecraft.player, minecraft.level));
+            case NEARBY -> result(tool, readNearbyEntities(minecraft.player, minecraft.level));
+            case TARGET -> result(tool, readTarget(minecraft));
+        };
     }
 
     private static AiToolResult result(AiToolRequest.Tool tool, String content) {

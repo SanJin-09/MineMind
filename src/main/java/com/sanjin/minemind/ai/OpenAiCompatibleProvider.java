@@ -46,6 +46,16 @@ public final class OpenAiCompatibleProvider implements AiProvider {
     }
 
     @Override
+    public AiCompletion completeWithTools(AiProviderSettings settings, List<AiMessage> messages, List<AiToolSpec> tools) throws AiException {
+        return OpenAiChatClient.completeWithTools(settings, messages, tools);
+    }
+
+    @Override
+    public boolean supportsNativeToolCalls() {
+        return true;
+    }
+
+    @Override
     public List<String> fetchModelIds(AiProviderSettings settings) throws AiException {
         return AiModelCatalog.fetchModelIds(settings);
     }

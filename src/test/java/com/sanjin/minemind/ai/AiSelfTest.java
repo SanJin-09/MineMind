@@ -29,6 +29,11 @@ public final class AiSelfTest {
         testMemoryDraft();
         testMemoryForgetDraft();
         testMemoryStore();
+        testAutonomousToolRegistry();
+        testOpenAiToolPayload();
+        testOpenAiToolCallParsing();
+        testJsonFallbackParsing();
+        testToolRunLimits();
         testPromptInjection();
         testConversationHistory();
         testScreenshotSizing();
@@ -431,6 +436,120 @@ public final class AiSelfTest {
         }
     }
 
+    private static void testAutonomousToolRegistry() {
+        assertEquals(8, AiToolRegistry.specs().size(), "autonomous tool registry size");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.HOTBAR), "registry contains hotbar");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.INVENTORY), "registry contains inventory");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.LOCATION), "registry contains location");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.NEARBY), "registry contains nearby");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.TARGET), "registry contains target");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.MEMORY_READ), "registry contains memory read");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.MEMORY_WRITE), "registry contains memory write");
+        assertTrue(AiToolRegistry.contains(AiToolRegistry.MEMORY_DELETE), "registry contains memory delete");
+        assertFalse(AiToolRegistry.contains("tool.image.read"), "registry excludes image tool");
+        assertFalse(AiToolRegistry.spec(AiToolRegistry.MEMORY_WRITE).orElseThrow().readOnly(), "memory write is mutation");
+    }
+
+    private static void testOpenAiToolPayload() {
+        AiProviderSettings settings = settings("openai", "gpt-4.1");
+        List<AiMessage> messages = List.of(
+                new AiMessage("user", "我在哪里？"),
+                AiMessage.assistantToolCalls("", List.of(new AiToolCall("call_1", AiToolRegistry.LOCATION, "{}"))),
+                AiMessage.toolResult("call_1", "位置: x=1 y=64 z=2")
+        );
+        String body = OpenAiChatClient.requestBodyJson(settings, messages, AiToolRegistry.specs());
+        assertTrue(body.contains("\"model\":\"gpt-4.1\""), "tool payload model");
+        assertTrue(body.contains("\"tool_choice\":\"auto\""), "tool payload choice");
+        assertTrue(body.contains("\"tools\""), "tool payload definitions");
+        assertTrue(body.contains("\"tool.hotbar.read\""), "tool payload contains hotbar tool");
+        assertTrue(body.contains("\"role\":\"assistant\""), "assistant tool role");
+        assertTrue(body.contains("\"tool_calls\""), "assistant tool calls serialized");
+        assertTrue(body.contains("\"role\":\"tool\""), "tool result role");
+        assertTrue(body.contains("\"tool_call_id\":\"call_1\""), "tool result id");
+    }
+
+    private static void testOpenAiToolCallParsing() {
+        try {
+            AiCompletion completion = OpenAiChatClient.parseCompletion("""
+                    {
+                      "choices": [
+                        {
+                          "message": {
+                            "role": "assistant",
+                            "content": null,
+                            "tool_calls": [
+                              {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                  "name": "tool.location.read",
+                                  "arguments": "{}"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                    """);
+            assertTrue(completion.hasToolCalls(), "openai parser detects tool call");
+            assertEquals(AiToolRegistry.LOCATION, completion.toolCalls().get(0).name(), "openai parser tool name");
+            assertEquals("{}", completion.toolCalls().get(0).argumentsJson(), "openai parser arguments");
+        } catch (AiException exception) {
+            throw new AssertionError("openai tool parsing should succeed", exception);
+        }
+    }
+
+    private static void testJsonFallbackParsing() {
+        assertEquals(List.of(), AiToolJsonFallback.parseToolCalls("直接回答"), "fallback ordinary text");
+        List<AiToolCall> calls = AiToolJsonFallback.parseToolCalls("""
+                {"tool_calls":[{"id":"call_1","name":"tool.memory.read","arguments":{"query":"基地"}}]}
+                """);
+        assertEquals(1, calls.size(), "fallback parses one call");
+        assertEquals(AiToolRegistry.MEMORY_READ, calls.get(0).name(), "fallback parses name");
+        assertTrue(calls.get(0).argumentsJson().contains("基地"), "fallback parses arguments");
+
+        List<AiToolCall> fenced = AiToolJsonFallback.parseToolCalls("""
+                ```json
+                {"tool_calls":[{"name":"tool.location.read","arguments":{}}]}
+                ```
+                """);
+        assertEquals(AiToolRegistry.LOCATION, fenced.get(0).name(), "fallback parses fenced json");
+
+        assertThrowsFallback(() -> AiToolJsonFallback.parseToolCalls("{bad}"), "fallback rejects invalid json");
+        assertThrowsFallback(
+                () -> AiToolJsonFallback.parseToolCalls("{\"tool_calls\":[{\"name\":\"tool.image.read\",\"arguments\":{}}]}"),
+                "fallback rejects unknown tool"
+        );
+        assertThrowsAi(
+                () -> AiAutonomousToolExecutor.execute(
+                        new AiToolCall("call_1", AiToolRegistry.MEMORY_WRITE, "{}"),
+                        "SanJin",
+                        LocalDateTime.of(2026, 5, 14, 9, 0)
+                ),
+                "memory write rejects empty arguments"
+        );
+    }
+
+    private static void testToolRunLimits() {
+        AiToolRunState state = new AiToolRunState();
+        try {
+            state.requireRoundCallCount(AiToolRunState.MAX_TOOL_CALLS_PER_ROUND);
+        } catch (AiException exception) {
+            throw new AssertionError("tool run should allow max calls", exception);
+        }
+        assertThrowsAi(
+                () -> state.requireRoundCallCount(AiToolRunState.MAX_TOOL_CALLS_PER_ROUND + 1),
+                "tool run rejects too many calls"
+        );
+        try {
+            state.recordMemoryMutation();
+        } catch (AiException exception) {
+            throw new AssertionError("tool run should allow first memory mutation", exception);
+        }
+        assertThrowsAi(state::recordMemoryMutation, "tool run rejects repeated memory mutation");
+    }
+
     private static void testPromptInjection() {
         List<AiMessage> messages = AiPrompt.withSystemPrompt(List.of(new AiMessage("user", "hello")));
         assertEquals(2, messages.size(), "system prompt prepended");
@@ -539,6 +658,30 @@ public final class AiSelfTest {
             return;
         }
         throw new AssertionError(label + ": expected forget draft exception");
+    }
+
+    private static void assertThrowsFallback(Runnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiToolJsonFallback.FallbackException exception) {
+            return;
+        }
+        throw new AssertionError(label + ": expected fallback exception");
+    }
+
+    private static void assertThrowsAi(ThrowingRunnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiException exception) {
+            return;
+        } catch (Exception exception) {
+            throw new AssertionError(label + ": expected ai exception", exception);
+        }
+        throw new AssertionError(label + ": expected ai exception");
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static Path tempDirectory() {
