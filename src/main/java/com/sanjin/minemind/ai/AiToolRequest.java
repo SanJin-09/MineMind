@@ -10,17 +10,19 @@ import java.util.regex.Pattern;
 
 public final class AiToolRequest {
     public static final String DEFAULT_PROMPT = "请根据已附加的 Minecraft 信息进行简短说明。";
+    public static final String DEFAULT_IMAGE_PROMPT = "请根据已附加的游戏截图进行简短说明。";
     public static final String DEFAULT_MEMORY_PROMPT = "请根据已附加的长期记忆进行简短说明。";
     public static final String DEFAULT_REMEMBER_PROMPT = "请根据已附加的 Minecraft 信息整理一条长期记忆。";
     public static final String DEFAULT_FORGET_PROMPT = "请根据已附加的 Minecraft 信息判断需要删除的长期记忆。";
     private static final Pattern MEMORY_ACTION = Pattern.compile("(?i)^@(remember|forget)(?:\\s+(.*))?$");
-    private static final Pattern TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target|memory)(?!\\S)");
-    private static final Pattern LOCAL_TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target)(?!\\S)");
+    private static final Pattern TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target|memory|image)(?:[:：])?(?!\\S)");
+    private static final Pattern LOCAL_TOOL_MARKER = Pattern.compile("(?i)(?<!\\S)@(hotbar|inventory|here|nearby|target)(?:[:：])?(?!\\S)");
 
     private final String originalPrompt;
     private final String userPrompt;
     private final List<Tool> tools;
     private final boolean memoryRequested;
+    private final boolean imageRequested;
     private final MemoryAction memoryAction;
     private final String memoryActionText;
 
@@ -29,6 +31,7 @@ public final class AiToolRequest {
             String userPrompt,
             List<Tool> tools,
             boolean memoryRequested,
+            boolean imageRequested,
             MemoryAction memoryAction,
             String memoryActionText
     ) {
@@ -36,6 +39,7 @@ public final class AiToolRequest {
         this.userPrompt = userPrompt;
         this.tools = List.copyOf(tools);
         this.memoryRequested = memoryRequested;
+        this.imageRequested = imageRequested;
         this.memoryAction = memoryAction;
         this.memoryActionText = memoryActionText == null ? "" : memoryActionText.trim();
     }
@@ -52,19 +56,25 @@ public final class AiToolRequest {
                 if (userPrompt.isBlank() && !parsed.tools().isEmpty()) {
                     userPrompt = action == MemoryAction.REMEMBER ? DEFAULT_REMEMBER_PROMPT : DEFAULT_FORGET_PROMPT;
                 }
-                return new AiToolRequest(original, userPrompt, parsed.tools(), false, action, userPrompt);
+                return new AiToolRequest(original, userPrompt, parsed.tools(), false, false, action, userPrompt);
             }
-            return new AiToolRequest(original, content, List.of(), false, action, content);
+            return new AiToolRequest(original, content, List.of(), false, false, action, content);
         }
 
         Matcher matcher = TOOL_MARKER.matcher(original);
         Set<Tool> tools = new LinkedHashSet<>();
         StringBuilder cleaned = new StringBuilder();
         boolean memoryRequested = false;
+        boolean imageRequested = false;
         while (matcher.find()) {
             String marker = matcher.group(1);
             if ("memory".equalsIgnoreCase(marker)) {
                 memoryRequested = true;
+                matcher.appendReplacement(cleaned, " ");
+                continue;
+            }
+            if ("image".equalsIgnoreCase(marker)) {
+                imageRequested = true;
                 matcher.appendReplacement(cleaned, " ");
                 continue;
             }
@@ -81,10 +91,16 @@ public final class AiToolRequest {
         }
 
         String userPrompt = cleaned.toString().replaceAll("\\s+", " ").trim();
-        if (userPrompt.isBlank() && (!tools.isEmpty() || memoryRequested)) {
-            userPrompt = memoryRequested && tools.isEmpty() ? DEFAULT_MEMORY_PROMPT : DEFAULT_PROMPT;
+        if (userPrompt.isBlank() && (!tools.isEmpty() || memoryRequested || imageRequested)) {
+            if (memoryRequested && tools.isEmpty() && !imageRequested) {
+                userPrompt = DEFAULT_MEMORY_PROMPT;
+            } else if (imageRequested && tools.isEmpty() && !memoryRequested) {
+                userPrompt = DEFAULT_IMAGE_PROMPT;
+            } else {
+                userPrompt = DEFAULT_PROMPT;
+            }
         }
-        return new AiToolRequest(original, userPrompt, new ArrayList<>(tools), memoryRequested, null, "");
+        return new AiToolRequest(original, userPrompt, new ArrayList<>(tools), memoryRequested, imageRequested, null, "");
     }
 
     private static ParsedLocalTools parseLocalTools(String prompt) {
@@ -124,6 +140,10 @@ public final class AiToolRequest {
 
     public boolean memoryRequested() {
         return memoryRequested;
+    }
+
+    public boolean imageRequested() {
+        return imageRequested;
     }
 
     public boolean hasMemoryAction() {

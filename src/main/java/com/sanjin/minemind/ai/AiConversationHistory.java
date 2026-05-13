@@ -11,8 +11,12 @@ public final class AiConversationHistory {
     }
 
     public synchronized List<AiMessage> snapshotWithUser(String prompt) {
+        return snapshotWithUser(new AiMessage("user", prompt));
+    }
+
+    public synchronized List<AiMessage> snapshotWithUser(AiMessage message) {
         List<AiMessage> result = new ArrayList<>(messages);
-        result.add(new AiMessage("user", prompt));
+        result.add(message);
         return result;
     }
 

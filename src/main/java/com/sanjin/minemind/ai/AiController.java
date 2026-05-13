@@ -101,7 +101,6 @@ public final class AiController {
         AiProvider provider;
         AiToolRequest toolRequest;
         AiToolContext toolContext;
-        List<AiMessage> requestMessages;
         try {
             toolRequest = parsedRequest;
             toolContext = AiMinecraftTools.collect(toolRequest);
@@ -110,7 +109,11 @@ public final class AiController {
             }
             settings = AiConfigStore.currentSettings();
             provider = AiProviderRegistry.provider(settings.providerId());
-            requestMessages = AiPrompt.withSystemPrompt(toolContext, HISTORY.snapshotWithUser(toolRequest.userPrompt()));
+            if (toolRequest.imageRequested() && !provider.supportsImageInput(settings)) {
+                REQUESTING.set(false);
+                AiChat.error("当前模型不支持图片输入，请切换到支持图片输入的模型后再使用 @image");
+                return;
+            }
         } catch (AiMinecraftTools.AiToolException exception) {
             REQUESTING.set(false);
             AiChat.error("本地工具读取失败，请重试");
@@ -124,11 +127,61 @@ public final class AiController {
             AiChat.error("本地配置或运行状态异常");
             return;
         }
+        final AiProviderSettings requestSettings = settings;
+        final AiProvider requestProvider = provider;
+        final AiToolRequest requestToolRequest = toolRequest;
+        final AiToolContext requestToolContext = toolContext;
         AiChat.player(cleanedPrompt);
-        if (toolContext.hasResults()) {
-            AiChat.info("已附加：" + toolContext.summaryLabels());
+        String attachedLabels = attachedLabels(requestToolContext, requestToolRequest.imageRequested());
+        if (!attachedLabels.isBlank()) {
+            AiChat.info("已附加：" + attachedLabels);
+        }
+        if (requestToolRequest.imageRequested()) {
+            AiChat.info("附带图片的请求回复速度会稍慢");
+            AiChat.info("截图可能包含聊天栏、坐标或服务器信息");
         }
         AiChat.info("正在等待回复......");
+
+        if (requestToolRequest.imageRequested()) {
+            try {
+                AiScreenshot.capture(AiConfigStore.imageQuality()).whenComplete((image, throwable) -> {
+                    if (throwable != null) {
+                        Minecraft.getInstance().execute(() -> finishImageError(session));
+                        return;
+                    }
+                    startCompletion(session, requestSettings, requestProvider, requestToolContext, requestToolRequest, image);
+                });
+            } catch (RuntimeException exception) {
+                finishImageError(session);
+            }
+            return;
+        }
+
+        startCompletion(session, requestSettings, requestProvider, requestToolContext, requestToolRequest, null);
+    }
+
+    private static void startCompletion(
+            int session,
+            AiProviderSettings settings,
+            AiProvider provider,
+            AiToolContext toolContext,
+            AiToolRequest toolRequest,
+            AiImageAttachment image
+    ) {
+        if (session != SESSION.get()) {
+            return;
+        }
+
+        AiMessage userMessage = image == null
+                ? new AiMessage("user", toolRequest.userPrompt())
+                : new AiMessage("user", toolRequest.userPrompt(), List.of(image));
+        List<AiMessage> requestMessages;
+        try {
+            requestMessages = AiPrompt.withSystemPrompt(toolContext, HISTORY.snapshotWithUser(userMessage));
+        } catch (RuntimeException exception) {
+            Minecraft.getInstance().execute(() -> finishError(session, new AiException(AiErrorType.LOCAL)));
+            return;
+        }
 
         try {
             EXECUTOR.execute(() -> {
@@ -384,6 +437,17 @@ public final class AiController {
         }
     }
 
+    private static void finishImageError(int session) {
+        if (session != SESSION.get()) {
+            return;
+        }
+        try {
+            AiChat.error("截图失败，请重试");
+        } finally {
+            REQUESTING.set(false);
+        }
+    }
+
     private static void finishRememberSuccess(int session, AiMemoryStore.MemoryWriteResult result) {
         if (session != SESSION.get()) {
             return;
@@ -507,6 +571,17 @@ public final class AiController {
         return "长期记忆";
     }
 
+    private static String attachedLabels(AiToolContext toolContext, boolean imageRequested) {
+        String labels = toolContext != null && toolContext.hasResults() ? toolContext.summaryLabels() : "";
+        if (!imageRequested) {
+            return labels;
+        }
+        if (labels.isBlank()) {
+            return "图片";
+        }
+        return labels + "、图片";
+    }
+
     private static void showStartupConfig() {
         try {
             AiProviderSettings settings = AiConfigStore.currentSettings();
@@ -524,7 +599,10 @@ public final class AiController {
         AiChat.infoHighlight("============ MineMind AI 可选模型 =============");
         AiChat.info("服务商：" + settings.displayName() + " (" + settings.providerId() + ")");
         AiChat.info("可选型号：" + modelIds.size() + " 个");
-        for (String line : joinModelLines(modelIds)) {
+        if (hasImageInputModels(settings, modelIds)) {
+            AiChat.info("标记：[图片] 支持 @image 图片识别");
+        }
+        for (String line : joinModelLines(settings, modelIds)) {
             AiChat.info(line);
         }
     }
@@ -556,15 +634,25 @@ public final class AiController {
         }
     }
 
-    private static List<String> joinModelLines(List<String> modelIds) {
+    private static boolean hasImageInputModels(AiProviderSettings settings, List<String> modelIds) {
+        for (String modelId : modelIds) {
+            if (AiModelCapabilities.supportsImageInput(settings.providerId(), modelId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<String> joinModelLines(AiProviderSettings settings, List<String> modelIds) {
         java.util.ArrayList<String> lines = new java.util.ArrayList<>();
         StringBuilder line = new StringBuilder();
         for (String modelId : modelIds) {
-            String part = line.isEmpty() ? modelId : ", " + modelId;
+            String displayModelId = AiModelCapabilities.displayModelId(settings.providerId(), modelId);
+            String part = line.isEmpty() ? displayModelId : ", " + displayModelId;
             if (!line.isEmpty() && line.length() + part.length() > 180) {
                 lines.add(line.toString());
                 line.setLength(0);
-                line.append(modelId);
+                line.append(displayModelId);
             } else {
                 line.append(part);
             }

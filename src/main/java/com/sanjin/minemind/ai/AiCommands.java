@@ -60,6 +60,11 @@ public final class AiCommands {
                         .executes(AiCommands::maxHistory)
                         .then(argument("count", IntegerArgumentType.integer())
                                 .executes(AiCommands::setMaxHistory)))
+                .then(literal("image-quality")
+                        .executes(AiCommands::imageQuality)
+                        .then(argument("quality", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(AiImageQuality.ids(), builder))
+                                .executes(AiCommands::setImageQuality)))
                 .then(literal("status").executes(AiCommands::status))
                 .then(literal("clear").executes(AiCommands::clear)));
     }
@@ -79,8 +84,10 @@ public final class AiCommands {
         AiChat.info("/ai base <provider> <url> - 设置 API Base URL");
         AiChat.info("/ai timeout [秒] - 查看或设置请求超时");
         AiChat.info("/ai max-history [数量] - 查看或设置上下文条数");
+        AiChat.info("/ai image-quality [low|medium|high] - 查看或设置截图质量");
         AiChat.info("/ai status - 查看连接状态");
         AiChat.info("/ai clear - 清空当前对话上下文");
+        AiChat.info("聊天中使用 @image 可附带当前游戏画面，需要当前模型支持图片输入");
         return 1;
     }
 
@@ -198,6 +205,23 @@ public final class AiCommands {
             AiConfigStore.setMaxHistoryMessages(count);
             AiController.trimHistoryToMax();
             AiChat.info("最大上下文已设置为：" + count + " 条");
+            return 1;
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return 0;
+        }
+    }
+
+    private static int imageQuality(CommandContext<CommandSourceStack> context) {
+        AiChat.info("当前截图质量：" + AiConfigStore.imageQuality());
+        return 1;
+    }
+
+    private static int setImageQuality(CommandContext<CommandSourceStack> context) {
+        String quality = StringArgumentType.getString(context, "quality");
+        try {
+            AiConfigStore.setImageQuality(quality);
+            AiChat.info("截图质量已设置为：" + AiConfigStore.imageQuality());
             return 1;
         } catch (AiConfigStore.ConfigException exception) {
             AiChat.error(exception.getMessage());

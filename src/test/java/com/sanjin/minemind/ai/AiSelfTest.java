@@ -20,7 +20,10 @@ public final class AiSelfTest {
         testHttpStatusClassification();
         testResponseBodyErrorClassification();
         testModelCatalogFiltering();
+        testImageQualityRules();
+        testImageCapabilities();
         testToolRequestParsing();
+        testImageRequestParsing();
         testMemoryRequestParsing();
         testToolContextFormatting();
         testMemoryDraft();
@@ -28,6 +31,7 @@ public final class AiSelfTest {
         testMemoryStore();
         testPromptInjection();
         testConversationHistory();
+        testScreenshotSizing();
         System.out.println("AiSelfTest passed");
     }
 
@@ -159,17 +163,52 @@ public final class AiSelfTest {
         assertTrue(AiModelCatalog.isTextChatModelId("grok-4.3"), "grok text model");
         assertTrue(AiModelCatalog.isTextChatModelId("gemini-2.5-pro"), "gemini text model");
         assertTrue(AiModelCatalog.isTextChatModelId("claude-3-5-sonnet"), "claude text model");
+        assertTrue(AiModelCatalog.isTextChatModelId("qwen2.5-vl-72b-instruct"), "qwen vl chat model");
+        assertTrue(AiModelCatalog.isTextChatModelId("qwen-vl-ocr"), "qwen vl ocr chat model");
+        assertTrue(AiModelCatalog.isTextChatModelId("moonshot-v1-32k-vision-preview"), "kimi vision chat model");
+        assertTrue(AiModelCatalog.isTextChatModelId("glm-4v-plus"), "glm vision chat model");
+        assertTrue(AiModelCatalog.isTextChatModelId("glm-4.6v"), "glm 4.6v chat model");
+        assertTrue(AiModelCatalog.isTextChatModelId("doubao-seed-1-6-vision-250615"), "seed vision chat model");
         assertEquals(List.of(), AiModelCatalog.cachedModelIds("deepseek"), "deepseek has no default model suggestions");
 
         assertFalse(AiModelCatalog.isTextChatModelId("text-embedding-3-small"), "embedding rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("gpt-image-1"), "image rejected");
+        assertFalse(AiModelCatalog.isTextChatModelId("doubao-seedream-4-0"), "seedream image generation rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("gpt-4o-audio-preview"), "audio rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("whisper-1"), "whisper rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("omni-moderation-latest"), "moderation rejected");
-        assertFalse(AiModelCatalog.isTextChatModelId("qwen2.5-vl-72b-instruct"), "qwen vl rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("qwen-omni-turbo"), "qwen omni rejected");
-        assertFalse(AiModelCatalog.isTextChatModelId("glm-4v-plus"), "glm vision rejected");
         assertFalse(AiModelCatalog.isTextChatModelId("gemini-2.5-pro-preview-tts"), "gemini tts rejected");
+    }
+
+    private static void testImageQualityRules() {
+        assertEquals("medium", AiImageQuality.sanitize(null), "image quality null defaults");
+        assertEquals("medium", AiImageQuality.sanitize("bad"), "image quality invalid defaults");
+        assertEquals("low", AiImageQuality.sanitize(" LOW "), "image quality normalize");
+        assertEquals(768, AiImageQuality.maxDimension("low"), "low image max dimension");
+        assertEquals(1280, AiImageQuality.maxDimension("medium"), "medium image max dimension");
+        assertEquals(1920, AiImageQuality.maxDimension("high"), "high image max dimension");
+        assertThrowsConfig(() -> AiImageQuality.require("ultra"), "image quality rejects invalid value");
+    }
+
+    private static void testImageCapabilities() {
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("openai", "gpt-4o")), "openai gpt-4o supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("openai", "gpt-4.1")), "openai gpt-4.1 supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("openai", "gpt-5.5")), "openai gpt-5 supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("gemini", "gemini-2.5-pro")), "gemini supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("qwen", "qwen2.5-vl-72b-instruct")), "qwen vl supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("qwen", "qwen3.6-plus")), "qwen3.6 supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("kimi", "moonshot-v1-32k-vision-preview")), "kimi vision supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("kimi", "kimi-k2.6")), "kimi k2.6 supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("glm", "glm-4.6v")), "glm 4.6v supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("glm", "glm-4v-plus-0111")), "glm 4v supports image");
+        assertTrue(AiModelCapabilities.supportsImageInput(settings("seed", "doubao-seed-1-6-vision-250615")), "seed vision supports image");
+        assertFalse(AiModelCapabilities.supportsImageInput(settings("openai", "gpt-image-1")), "image generation model is not chat image input");
+        assertFalse(AiModelCapabilities.supportsImageInput(settings("deepseek", "deepseek-chat")), "deepseek image unsupported");
+        assertFalse(AiModelCapabilities.supportsImageInput(settings("seed", "doubao-seedream-4-0")), "seed image generation unsupported");
+        assertFalse(AiModelCapabilities.supportsImageInput(settings("qwen", "qwen-max")), "qwen text model image unsupported");
+        assertEquals("glm-4.6v [图片]", AiModelCapabilities.displayModelId("glm", "glm-4.6v"), "image model list marker");
+        assertEquals("deepseek-chat", AiModelCapabilities.displayModelId("deepseek", "deepseek-chat"), "text model no image marker");
     }
 
     private static void testToolRequestParsing() {
@@ -185,6 +224,32 @@ public final class AiSelfTest {
         AiToolRequest noTools = AiToolRequest.parse("@unknown hello");
         assertEquals("@unknown hello", noTools.userPrompt(), "unknown marker remains ordinary text");
         assertFalse(noTools.hasTools(), "unknown marker does not trigger tools");
+    }
+
+    private static void testImageRequestParsing() {
+        AiToolRequest image = AiToolRequest.parse("@IMAGE 这是什么？");
+        assertTrue(image.imageRequested(), "image marker detected");
+        assertEquals("这是什么？", image.userPrompt(), "image marker removed");
+        assertFalse(image.hasTools(), "image marker does not trigger text tools");
+
+        AiToolRequest imageWithColon = AiToolRequest.parse("@image: 这是什么？");
+        assertTrue(imageWithColon.imageRequested(), "image marker with colon detected");
+        assertEquals("这是什么？", imageWithColon.userPrompt(), "image marker with colon removed");
+
+        AiToolRequest imageWithTools = AiToolRequest.parse("@here: @image 我现在在哪里？");
+        assertTrue(imageWithTools.imageRequested(), "image with tools detected");
+        assertEquals("我现在在哪里？", imageWithTools.userPrompt(), "image with tools prompt");
+        assertEquals(1, imageWithTools.tools().size(), "image with here tool");
+        assertEquals(AiToolRequest.Tool.HERE, imageWithTools.tools().get(0), "image with here remains");
+
+        AiToolRequest onlyImage = AiToolRequest.parse("@image");
+        assertTrue(onlyImage.imageRequested(), "image-only detected");
+        assertEquals(AiToolRequest.DEFAULT_IMAGE_PROMPT, onlyImage.userPrompt(), "image-only default prompt");
+
+        AiToolRequest rememberImage = AiToolRequest.parse("@remember @image 记住当前画面");
+        assertTrue(rememberImage.hasMemoryAction(), "remember image still memory action");
+        assertFalse(rememberImage.imageRequested(), "remember does not trigger image capture");
+        assertEquals("@image 记住当前画面", rememberImage.userPrompt(), "remember keeps image marker as text");
     }
 
     private static void testMemoryRequestParsing() {
@@ -372,6 +437,7 @@ public final class AiSelfTest {
         assertEquals("system", messages.get(0).role(), "system prompt role");
         assertTrue(messages.get(0).content().contains("Minecraft 游戏聊天栏"), "system prompt describes minecraft chat");
         assertTrue(messages.get(0).content().contains("@memory"), "system prompt lists memory marker");
+        assertTrue(messages.get(0).content().contains("@image"), "system prompt lists image marker");
         assertEquals("user", messages.get(1).role(), "user message after system prompt");
         assertEquals("hello", messages.get(1).content(), "user message preserved");
 
@@ -403,6 +469,12 @@ public final class AiSelfTest {
         assertEquals(0, history.size(), "history cleared");
     }
 
+    private static void testScreenshotSizing() {
+        assertEquals(new AiScreenshot.ImageSize(1280, 720), AiScreenshot.targetSize(1920, 1080, 1280), "screenshot landscape resize");
+        assertEquals(new AiScreenshot.ImageSize(720, 1280), AiScreenshot.targetSize(1080, 1920, 1280), "screenshot portrait resize");
+        assertEquals(new AiScreenshot.ImageSize(800, 600), AiScreenshot.targetSize(800, 600, 1280), "screenshot keeps small image");
+    }
+
     private static void assertEquals(Object expected, Object actual, String label) {
         if (!expected.equals(actual)) {
             throw new AssertionError(label + ": expected <" + expected + "> but was <" + actual + ">");
@@ -431,6 +503,15 @@ public final class AiSelfTest {
         if (values.contains(expected)) {
             throw new AssertionError(label + ": expected list to omit <" + expected + "> but was <" + values + ">");
         }
+    }
+
+    private static void assertThrowsConfig(Runnable runnable, String label) {
+        try {
+            runnable.run();
+        } catch (AiConfigStore.ConfigException exception) {
+            return;
+        }
+        throw new AssertionError(label + ": expected config exception");
     }
 
     private static void assertThrowsMemory(Runnable runnable, String label) {
@@ -491,5 +572,9 @@ public final class AiSelfTest {
         } catch (IOException exception) {
             throw new RuntimeException(exception);
         }
+    }
+
+    private static AiProviderSettings settings(String providerId, String model) {
+        return new AiProviderSettings(providerId, providerId, model, "https://example.com/v1", "key", 45);
     }
 }

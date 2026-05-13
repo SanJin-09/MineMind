@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -37,7 +38,7 @@ public final class OpenAiChatClient {
         for (AiMessage message : messages) {
             JsonObject item = new JsonObject();
             item.addProperty("role", message.role());
-            item.addProperty("content", message.content());
+            item.add("content", content(message));
             jsonMessages.add(item);
         }
         body.add("messages", jsonMessages);
@@ -85,6 +86,30 @@ public final class OpenAiChatClient {
         if (settings.baseUrl() == null || settings.baseUrl().isBlank()) {
             throw new AiException(AiErrorType.LOCAL, "当前服务商没有配置 API Base URL");
         }
+    }
+
+    private static JsonElement content(AiMessage message) {
+        if (!message.hasImages()) {
+            return new JsonPrimitive(message.content());
+        }
+
+        JsonArray parts = new JsonArray();
+        JsonObject text = new JsonObject();
+        text.addProperty("type", "text");
+        text.addProperty("text", message.content());
+        parts.add(text);
+
+        for (AiImageAttachment image : message.images()) {
+            JsonObject imageUrl = new JsonObject();
+            imageUrl.addProperty("url", image.dataUrl());
+            imageUrl.addProperty("detail", "auto");
+
+            JsonObject imagePart = new JsonObject();
+            imagePart.addProperty("type", "image_url");
+            imagePart.add("image_url", imageUrl);
+            parts.add(imagePart);
+        }
+        return parts;
     }
 
     private static String parseContent(String body) throws AiException {

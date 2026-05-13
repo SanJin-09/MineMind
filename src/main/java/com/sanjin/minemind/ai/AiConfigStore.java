@@ -41,6 +41,10 @@ public final class AiConfigStore {
         return data().timeoutSeconds;
     }
 
+    public static synchronized String imageQuality() {
+        return data().imageQuality;
+    }
+
     public static synchronized AiProviderSettings currentSettings() {
         ConfigData data = data();
         ProviderConfig provider = provider(data.currentProvider);
@@ -112,6 +116,11 @@ public final class AiConfigStore {
         save();
     }
 
+    public static synchronized void setImageQuality(String imageQuality) {
+        data().imageQuality = AiImageQuality.require(imageQuality);
+        save();
+    }
+
     public static synchronized List<String> providerIds() {
         return AiProviderRegistry.providerSuggestions(data().providers.keySet());
     }
@@ -131,6 +140,7 @@ public final class AiConfigStore {
         lines.add("当前 Base URL：" + emptyText(current.baseUrl, "未设置"));
         lines.add("请求超时：" + data.timeoutSeconds + " 秒");
         lines.add("最大上下文：" + data.maxHistoryMessages + " 条");
+        lines.add("截图质量：" + data.imageQuality);
         lines.add("当前上下文：" + historyMessages + " 条");
         lines.addAll(keyStatusLines());
         return lines;
@@ -260,6 +270,11 @@ public final class AiConfigStore {
             data.maxHistoryMessages = sanitizedHistory;
             changed = true;
         }
+        String sanitizedImageQuality = AiImageQuality.sanitize(data.imageQuality);
+        if (!sanitizedImageQuality.equals(data.imageQuality)) {
+            data.imageQuality = sanitizedImageQuality;
+            changed = true;
+        }
         for (Map.Entry<String, ProviderConfig> entry : data.providers.entrySet()) {
             if (entry.getValue() == null) {
                 entry.setValue(ProviderConfig.defaultFor(entry.getKey()));
@@ -328,6 +343,7 @@ public final class AiConfigStore {
         public String currentProvider = AiProviderRegistry.OPENAI_PROVIDER_ID;
         public int timeoutSeconds = AiConfigRules.DEFAULT_TIMEOUT_SECONDS;
         public int maxHistoryMessages = AiConfigRules.DEFAULT_MAX_HISTORY_MESSAGES;
+        public String imageQuality = AiImageQuality.DEFAULT;
         public boolean streaming = false;
         public boolean aiMode = false;
         public Map<String, ProviderConfig> providers = new LinkedHashMap<>();

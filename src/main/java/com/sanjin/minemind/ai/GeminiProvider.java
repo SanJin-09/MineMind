@@ -72,7 +72,7 @@ public final class GeminiProvider implements AiProvider {
             JsonObject item = new JsonObject();
             item.addProperty("role", geminiRole(message.role()));
 
-            item.add("parts", textParts(message.content()));
+            item.add("parts", parts(message));
             contents.add(item);
         }
         if (!systemInstruction.isEmpty()) {
@@ -272,6 +272,20 @@ public final class GeminiProvider implements AiProvider {
         JsonObject text = new JsonObject();
         text.addProperty("text", content == null ? "" : content);
         parts.add(text);
+        return parts;
+    }
+
+    private static JsonArray parts(AiMessage message) {
+        JsonArray parts = textParts(message.content());
+        for (AiImageAttachment image : message.images()) {
+            JsonObject inlineData = new JsonObject();
+            inlineData.addProperty("mimeType", image.mediaType());
+            inlineData.addProperty("data", image.base64Data());
+
+            JsonObject imagePart = new JsonObject();
+            imagePart.add("inlineData", inlineData);
+            parts.add(imagePart);
+        }
         return parts;
     }
 

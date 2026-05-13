@@ -132,8 +132,16 @@ public final class AiModelCatalog {
         if (containsAny(id,
                 "embedding",
                 "dall-e",
-                "image",
-                "vision",
+                "gpt-image",
+                "image-generation",
+                "imagegen",
+                "seedream",
+                "text-to-image",
+                "txt2img",
+                "t2i",
+                "i2i",
+                "recraft",
+                "stable-diffusion",
                 "realtime",
                 "audio",
                 "tts",
@@ -144,15 +152,12 @@ public final class AiModelCatalog {
                 "omni",
                 "sora",
                 "video",
-                "visual",
+                "seedance",
                 "search-preview",
                 "computer-use",
                 "babbage",
                 "davinci",
-                "-vl",
-                "vl-",
-                "qvq",
-                "glm-4v"
+                "qvq"
         )) {
             return false;
         }
