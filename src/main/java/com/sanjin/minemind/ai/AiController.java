@@ -186,7 +186,14 @@ public final class AiController {
         try {
             EXECUTOR.execute(() -> {
                 try {
-                    String answer = AiToolOrchestrator.complete(provider, settings, requestMessages, AiChat.playerName());
+                    String answer = AiToolOrchestrator.complete(
+                            provider,
+                            settings,
+                            requestMessages,
+                            AiChat.playerName(),
+                            toolRequest.userPrompt(),
+                            AiConfigStore.autonomousToolPermissions()
+                    );
                     Minecraft.getInstance().execute(() -> finishSuccess(session, toolRequest.userPrompt(), answer));
                 } catch (AiException exception) {
                     Minecraft.getInstance().execute(() -> finishError(session, exception));

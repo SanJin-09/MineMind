@@ -65,6 +65,15 @@ public final class AiCommands {
                         .then(argument("quality", StringArgumentType.word())
                                 .suggests((context, builder) -> SharedSuggestionProvider.suggest(AiImageQuality.ids(), builder))
                                 .executes(AiCommands::setImageQuality)))
+                .then(literal("tools")
+                        .executes(AiCommands::tools)
+                        .then(literal("on").executes(AiCommands::toolsOn))
+                        .then(literal("off").executes(AiCommands::toolsOff))
+                        .then(argument("permission", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(toolPermissionIds(), builder))
+                                .then(argument("state", StringArgumentType.word())
+                                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(java.util.List.of("on", "off"), builder))
+                                        .executes(AiCommands::setToolPermission))))
                 .then(literal("status").executes(AiCommands::status))
                 .then(literal("clear").executes(AiCommands::clear)));
     }
@@ -85,6 +94,8 @@ public final class AiCommands {
         AiChat.info("/ai timeout [秒] - 查看或设置请求超时");
         AiChat.info("/ai max-history [数量] - 查看或设置上下文条数");
         AiChat.info("/ai image-quality [low|medium|high] - 查看或设置截图质量");
+        AiChat.info("/ai tools [on|off] - 查看或设置模型自主工具总开关");
+        AiChat.info("/ai tools <location|memory-read|memory-write|memory-delete> <on|off> - 设置敏感自主工具权限");
         AiChat.info("/ai status - 查看连接状态");
         AiChat.info("/ai clear - 清空当前对话上下文");
         AiChat.info("模型可自主调用本地文本工具，聊天栏会提示调用结果");
@@ -230,6 +241,38 @@ public final class AiCommands {
         }
     }
 
+    private static int tools(CommandContext<CommandSourceStack> context) {
+        for (String line : AiConfigStore.autonomousToolPermissionLines()) {
+            AiChat.info(line);
+        }
+        return 1;
+    }
+
+    private static int toolsOn(CommandContext<CommandSourceStack> context) {
+        AiConfigStore.setAutonomousTools(true);
+        AiChat.info("模型自主工具已开启");
+        return 1;
+    }
+
+    private static int toolsOff(CommandContext<CommandSourceStack> context) {
+        AiConfigStore.setAutonomousTools(false);
+        AiChat.info("模型自主工具已关闭");
+        return 1;
+    }
+
+    private static int setToolPermission(CommandContext<CommandSourceStack> context) {
+        String permission = StringArgumentType.getString(context, "permission");
+        String state = StringArgumentType.getString(context, "state");
+        try {
+            AiConfigStore.setAutonomousToolPermission(permission, parseEnabled(state));
+            AiChat.info("自主工具权限已更新：" + permission + " = " + state.toLowerCase(java.util.Locale.ROOT));
+            return 1;
+        } catch (AiConfigStore.ConfigException exception) {
+            AiChat.error(exception.getMessage());
+            return 0;
+        }
+    }
+
     private static int status(CommandContext<CommandSourceStack> context) {
         for (String line : AiController.statusLines()) {
             AiChat.info(line);
@@ -240,5 +283,18 @@ public final class AiCommands {
     private static int clear(CommandContext<CommandSourceStack> context) {
         AiController.clearHistory();
         return 1;
+    }
+
+    private static boolean parseEnabled(String state) {
+        String normalized = state == null ? "" : state.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (normalized) {
+            case "on", "true", "yes", "1" -> true;
+            case "off", "false", "no", "0" -> false;
+            default -> throw new AiConfigStore.ConfigException("工具权限状态必须是 on 或 off");
+        };
+    }
+
+    private static java.util.List<String> toolPermissionIds() {
+        return java.util.List.of("location", "memory-read", "memory-write", "memory-delete");
     }
 }

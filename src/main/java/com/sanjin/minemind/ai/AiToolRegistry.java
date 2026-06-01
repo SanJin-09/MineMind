@@ -38,6 +38,15 @@ public final class AiToolRegistry {
         return List.copyOf(TOOLS.values());
     }
 
+    public static List<AiToolSpec> specs(AiToolPermissions permissions) {
+        if (permissions == null || !permissions.autonomousTools()) {
+            return List.of();
+        }
+        return TOOLS.values().stream()
+                .filter(permissions::isAllowed)
+                .toList();
+    }
+
     public static Optional<AiToolSpec> spec(String name) {
         if (name == null) {
             return Optional.empty();

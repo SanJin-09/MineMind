@@ -30,6 +30,8 @@ public final class AiSelfTest {
         testMemoryForgetDraft();
         testMemoryStore();
         testAutonomousToolRegistry();
+        testAutonomousToolPermissions();
+        testAutonomousMemoryPolicy();
         testOpenAiToolPayload();
         testOpenAiToolCallParsing();
         testJsonFallbackParsing();
@@ -429,6 +431,22 @@ public final class AiSelfTest {
             assertEquals(0, AiMemoryStore.forget(file, "不存在"), "memory forget missing returns zero");
             assertFalse(readString(file).contains("樱花林"), "memory forget removes content");
 
+            AiMemoryStore.remember(
+                    file,
+                    "SanJin",
+                    "基地箱子里有煤炭",
+                    LocalDateTime.of(2026, 5, 14, 10, 0)
+            );
+            AiMemoryStore.remember(
+                    file,
+                    "SanJin",
+                    "基地箱子里有铁锭",
+                    LocalDateTime.of(2026, 5, 14, 10, 1)
+            );
+            AiMemoryStore.MemoryDeleteResult limitedDelete = AiMemoryStore.forgetByKeywordLimit(file, "基地箱子", 1);
+            assertEquals(1, limitedDelete.count(), "autonomous keyword delete is limited");
+            assertTrue(readString(file).contains("基地箱子"), "autonomous keyword delete keeps extra matches");
+
             assertThrowsMemory(() -> AiMemoryStore.remember(file, "SanJin", " ", LocalDateTime.of(2026, 5, 12, 14, 30)), "blank remember rejected");
             assertThrowsMemory(() -> AiMemoryStore.forget(file, " "), "blank forget rejected");
         } finally {
@@ -448,6 +466,42 @@ public final class AiSelfTest {
         assertTrue(AiToolRegistry.contains(AiToolRegistry.MEMORY_DELETE), "registry contains memory delete");
         assertFalse(AiToolRegistry.contains("tool.image.read"), "registry excludes image tool");
         assertFalse(AiToolRegistry.spec(AiToolRegistry.MEMORY_WRITE).orElseThrow().readOnly(), "memory write is mutation");
+    }
+
+    private static void testAutonomousToolPermissions() {
+        AiToolPermissions disabled = new AiToolPermissions(false, true, true, true, true);
+        assertEquals(List.of(), AiToolRegistry.specs(disabled), "disabled autonomous tools exposes none");
+
+        AiToolPermissions safeDefault = new AiToolPermissions(true, false, false, false, false);
+        List<String> defaultToolNames = AiToolRegistry.specs(safeDefault).stream().map(AiToolSpec::name).toList();
+        assertContains(defaultToolNames, AiToolRegistry.HOTBAR, "default tools include hotbar");
+        assertContains(defaultToolNames, AiToolRegistry.INVENTORY, "default tools include inventory");
+        assertContains(defaultToolNames, AiToolRegistry.NEARBY, "default tools include nearby");
+        assertContains(defaultToolNames, AiToolRegistry.TARGET, "default tools include target");
+        assertNotContains(defaultToolNames, AiToolRegistry.LOCATION, "default tools exclude location");
+        assertNotContains(defaultToolNames, AiToolRegistry.MEMORY_READ, "default tools exclude memory read");
+        assertNotContains(defaultToolNames, AiToolRegistry.MEMORY_WRITE, "default tools exclude memory write");
+        assertNotContains(defaultToolNames, AiToolRegistry.MEMORY_DELETE, "default tools exclude memory delete");
+
+        AiToolPermissions all = new AiToolPermissions(true, true, true, true, true);
+        assertEquals(8, AiToolRegistry.specs(all).size(), "all permissions expose all tools");
+        assertTrue(AiToolJsonFallback.prompt(AiToolRegistry.specs(safeDefault)).contains(AiToolRegistry.HOTBAR), "fallback prompt includes enabled tool");
+        assertFalse(AiToolJsonFallback.prompt(AiToolRegistry.specs(safeDefault)).contains(AiToolRegistry.MEMORY_READ), "fallback prompt excludes disabled memory tool");
+    }
+
+    private static void testAutonomousMemoryPolicy() {
+        try {
+            assertEquals("我的基地在樱花林旁边", AiAutonomousMemoryPolicy.requireWrite("帮我记住这个", "我的基地在樱花林旁边"), "memory write accepts explicit intent");
+            assertEquals("樱花林", AiAutonomousMemoryPolicy.requireDelete("忘掉关于樱花林的记忆", "樱花林"), "memory delete accepts explicit intent");
+        } catch (AiException exception) {
+            throw new AssertionError("memory policy should accept explicit intent", exception);
+        }
+
+        assertThrowsAi(() -> AiAutonomousMemoryPolicy.requireWrite("我的基地在哪里？", "我的基地在樱花林旁边"), "memory write rejects missing intent");
+        assertThrowsAi(() -> AiAutonomousMemoryPolicy.requireWrite("记住这个", "x".repeat(501)), "memory write rejects long content");
+        assertThrowsAi(() -> AiAutonomousMemoryPolicy.requireDelete("删除记忆", "家"), "memory delete rejects short keyword");
+        assertThrowsAi(() -> AiAutonomousMemoryPolicy.requireDelete("删除记忆", "全部"), "memory delete rejects broad keyword");
+        assertThrowsAi(() -> AiAutonomousMemoryPolicy.requireDelete("我的基地在哪里？", "樱花林"), "memory delete rejects missing intent");
     }
 
     private static void testOpenAiToolPayload() {
@@ -525,7 +579,8 @@ public final class AiSelfTest {
                 () -> AiAutonomousToolExecutor.execute(
                         new AiToolCall("call_1", AiToolRegistry.MEMORY_WRITE, "{}"),
                         "SanJin",
-                        LocalDateTime.of(2026, 5, 14, 9, 0)
+                        LocalDateTime.of(2026, 5, 14, 9, 0),
+                        "帮我记住这个"
                 ),
                 "memory write rejects empty arguments"
         );

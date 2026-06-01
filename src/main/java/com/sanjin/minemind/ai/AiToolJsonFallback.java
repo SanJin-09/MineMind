@@ -19,6 +19,23 @@ public final class AiToolJsonFallback {
     private AiToolJsonFallback() {
     }
 
+    public static String prompt(List<AiToolSpec> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return PROMPT;
+        }
+        String names = tools.stream()
+                .map(AiToolSpec::name)
+                .reduce((left, right) -> left + "、" + right)
+                .orElse("");
+        String exampleTool = tools.get(0).name();
+        return """
+                MineMind 支持模型自主请求本地工具。若回答当前问题需要读取或修改本地信息，请只输出 JSON：
+                {"tool_calls":[{"id":"call_1","name":"%s","arguments":{}}]}
+                本轮已启用工具：%s。
+                不需要工具时，直接用自然语言回答。不要请求截图工具，截图只能由玩家显式 @image 触发。
+                """.formatted(exampleTool, names).trim();
+    }
+
     public static List<AiToolCall> parseToolCalls(String content) {
         String text = stripFence(content);
         if (text.isBlank()) {

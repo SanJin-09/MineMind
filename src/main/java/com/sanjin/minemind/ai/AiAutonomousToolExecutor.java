@@ -9,7 +9,7 @@ public final class AiAutonomousToolExecutor {
     private AiAutonomousToolExecutor() {
     }
 
-    public static AiToolExecution execute(AiToolCall call, String playerName, LocalDateTime time) throws AiException {
+    public static AiToolExecution execute(AiToolCall call, String playerName, LocalDateTime time, String userIntent) throws AiException {
         AiToolSpec spec = AiToolRegistry.spec(call.name())
                 .orElseThrow(() -> new AiException(AiErrorType.REQUEST, "模型请求了未知工具：" + call.name()));
         JsonObject arguments;
@@ -26,8 +26,8 @@ public final class AiAutonomousToolExecutor {
             case AiToolRegistry.NEARBY -> minecraft(AiToolRequest.Tool.NEARBY);
             case AiToolRegistry.TARGET -> minecraft(AiToolRequest.Tool.TARGET);
             case AiToolRegistry.MEMORY_READ -> memoryRead(arguments);
-            case AiToolRegistry.MEMORY_WRITE -> memoryWrite(arguments, playerName, time);
-            case AiToolRegistry.MEMORY_DELETE -> memoryDelete(arguments);
+            case AiToolRegistry.MEMORY_WRITE -> memoryWrite(arguments, playerName, time, userIntent);
+            case AiToolRegistry.MEMORY_DELETE -> memoryDelete(arguments, userIntent);
             default -> throw new AiException(AiErrorType.REQUEST, "模型请求了未知工具：" + call.name());
         };
     }
@@ -45,8 +45,8 @@ public final class AiAutonomousToolExecutor {
         return new AiToolExecution(AiMemoryStore.readContextResult(query), false, "");
     }
 
-    private static AiToolExecution memoryWrite(JsonObject arguments, String playerName, LocalDateTime time) throws AiException {
-        String content = firstString(arguments, "content", "memory");
+    private static AiToolExecution memoryWrite(JsonObject arguments, String playerName, LocalDateTime time, String userIntent) throws AiException {
+        String content = AiAutonomousMemoryPolicy.requireWrite(userIntent, firstString(arguments, "content", "memory"));
         try {
             AiMemoryStore.MemoryWriteResult result = AiMemoryStore.remember(playerName, content, time);
             AiToolResult toolResult = new AiToolResult(
@@ -62,18 +62,18 @@ public final class AiAutonomousToolExecutor {
         }
     }
 
-    private static AiToolExecution memoryDelete(JsonObject arguments) throws AiException {
-        String keyword = firstString(arguments, "keyword", "query");
+    private static AiToolExecution memoryDelete(JsonObject arguments, String userIntent) throws AiException {
+        String keyword = AiAutonomousMemoryPolicy.requireDelete(userIntent, firstString(arguments, "keyword", "query"));
         try {
-            int count = AiMemoryStore.forget(keyword);
+            AiMemoryStore.MemoryDeleteResult result = AiMemoryStore.forgetByKeywordLimit(keyword, AiAutonomousMemoryPolicy.MAX_DELETE_MATCHES);
             AiToolResult toolResult = new AiToolResult(
                     AiToolRegistry.MEMORY_DELETE,
                     "tool_call",
                     "长期记忆",
-                    "已删除长期记忆：" + count + " 条",
+                    "已删除长期记忆：" + result.count() + " 条" + (result.count() > 0 ? "；" + result.summary() : ""),
                     false
             );
-            return new AiToolExecution(toolResult, true, "已删除长期记忆：" + count + " 条");
+            return new AiToolExecution(toolResult, true, "已删除长期记忆：" + result.count() + " 条");
         } catch (AiMemoryStore.MemoryException exception) {
             throw new AiException(AiErrorType.LOCAL, exception.getMessage());
         }

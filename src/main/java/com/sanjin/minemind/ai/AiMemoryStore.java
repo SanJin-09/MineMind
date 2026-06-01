@@ -116,6 +116,31 @@ public final class AiMemoryStore {
         return forgetByIds(path(), ids);
     }
 
+    public static MemoryDeleteResult forgetByKeywordLimit(String keyword, int maxMatches) {
+        return forgetByKeywordLimit(path(), keyword, maxMatches);
+    }
+
+    static MemoryDeleteResult forgetByKeywordLimit(Path path, String keyword, int maxMatches) {
+        String cleaned = requireText(keyword, "遗忘关键词不能为空");
+        int limit = Math.max(1, maxMatches);
+        String normalizedKeyword = cleaned.toLowerCase(Locale.ROOT);
+        List<IndexedMemoryEntry> entries = indexedEntries(path);
+        if (entries.isEmpty()) {
+            return new MemoryDeleteResult(0, List.of());
+        }
+
+        List<Integer> ids = new ArrayList<>();
+        for (IndexedMemoryEntry entry : entries) {
+            if (entry.entry().text().toLowerCase(Locale.ROOT).contains(normalizedKeyword)) {
+                ids.add(entry.id());
+                if (ids.size() >= limit) {
+                    break;
+                }
+            }
+        }
+        return forgetByIds(path, ids);
+    }
+
     static MemoryDeleteResult forgetByIds(Path path, List<Integer> ids) {
         if (ids == null || ids.isEmpty()) {
             return new MemoryDeleteResult(0, List.of());

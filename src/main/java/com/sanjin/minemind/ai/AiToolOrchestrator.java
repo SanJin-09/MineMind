@@ -16,12 +16,19 @@ public final class AiToolOrchestrator {
             AiProvider provider,
             AiProviderSettings settings,
             List<AiMessage> messages,
-            String playerName
+            String playerName,
+            String userIntent,
+            AiToolPermissions permissions
     ) throws AiException {
         List<AiMessage> working = new ArrayList<>(messages);
-        List<AiToolSpec> tools = AiToolRegistry.specs();
+        List<AiToolSpec> tools = AiToolRegistry.specs(permissions);
+        if (tools.isEmpty()) {
+            return provider.complete(settings, working);
+        }
         AiToolRunState state = new AiToolRunState();
         Map<String, AiToolExecution> readCache = new LinkedHashMap<>();
+        Map<String, AiToolSpec> allowedTools = allowedTools(tools);
+        String fallbackPrompt = AiToolJsonFallback.prompt(tools);
         boolean nativeTools = provider.supportsNativeToolCalls();
         boolean fallbackPromptAdded = false;
 
@@ -36,14 +43,14 @@ public final class AiToolOrchestrator {
                     }
                     nativeTools = false;
                     if (!fallbackPromptAdded) {
-                        working.add(new AiMessage("system", AiToolJsonFallback.PROMPT));
+                        working.add(new AiMessage("system", fallbackPrompt));
                         fallbackPromptAdded = true;
                     }
                     completion = fallbackCompletion(provider, settings, working);
                 }
             } else {
                 if (!fallbackPromptAdded) {
-                    working.add(new AiMessage("system", AiToolJsonFallback.PROMPT));
+                    working.add(new AiMessage("system", fallbackPrompt));
                     fallbackPromptAdded = true;
                 }
                 completion = fallbackCompletion(provider, settings, working);
@@ -57,7 +64,7 @@ public final class AiToolOrchestrator {
             }
 
             state.requireRoundCallCount(completion.toolCalls().size());
-            List<AiToolExecution> executions = executeToolCalls(completion.toolCalls(), playerName, state, readCache);
+            List<AiToolExecution> executions = executeToolCalls(completion.toolCalls(), playerName, userIntent, state, readCache, allowedTools);
             notifyToolCalls(executions);
 
             if (nativeTools) {
@@ -94,15 +101,16 @@ public final class AiToolOrchestrator {
     private static List<AiToolExecution> executeToolCalls(
             List<AiToolCall> calls,
             String playerName,
+            String userIntent,
             AiToolRunState state,
-            Map<String, AiToolExecution> readCache
+            Map<String, AiToolExecution> readCache,
+            Map<String, AiToolSpec> allowedTools
     ) throws AiException {
-        preflightToolCalls(calls, state);
+        preflightToolCalls(calls, state, allowedTools);
         List<AiToolExecution> executions = new ArrayList<>();
         LocalDateTime now = LocalDateTime.now();
         for (AiToolCall call : calls) {
-            AiToolSpec spec = AiToolRegistry.spec(call.name())
-                    .orElseThrow(() -> new AiException(AiErrorType.REQUEST, "模型请求了未知工具：" + call.name()));
+            AiToolSpec spec = requireAllowedTool(call, allowedTools);
             if (!spec.readOnly()) {
                 state.recordMemoryMutation();
             }
@@ -112,7 +120,7 @@ public final class AiToolOrchestrator {
                 continue;
             }
 
-            AiToolExecution execution = AiAutonomousToolExecutor.execute(call, playerName, now);
+            AiToolExecution execution = AiAutonomousToolExecutor.execute(call, playerName, now, userIntent);
             if (spec.readOnly()) {
                 readCache.put(cacheKey, execution);
             }
@@ -121,11 +129,10 @@ public final class AiToolOrchestrator {
         return List.copyOf(executions);
     }
 
-    private static void preflightToolCalls(List<AiToolCall> calls, AiToolRunState state) throws AiException {
+    private static void preflightToolCalls(List<AiToolCall> calls, AiToolRunState state, Map<String, AiToolSpec> allowedTools) throws AiException {
         int mutations = 0;
         for (AiToolCall call : calls) {
-            AiToolSpec spec = AiToolRegistry.spec(call.name())
-                    .orElseThrow(() -> new AiException(AiErrorType.REQUEST, "模型请求了未知工具：" + call.name()));
+            AiToolSpec spec = requireAllowedTool(call, allowedTools);
             if (!spec.readOnly()) {
                 mutations++;
             }
@@ -133,6 +140,25 @@ public final class AiToolOrchestrator {
         if (state.memoryMutations() + mutations > AiToolRunState.MAX_MEMORY_MUTATIONS) {
             throw new AiException(AiErrorType.REQUEST, "本轮最多允许一次长期记忆修改");
         }
+    }
+
+    private static Map<String, AiToolSpec> allowedTools(List<AiToolSpec> tools) {
+        Map<String, AiToolSpec> allowedTools = new LinkedHashMap<>();
+        for (AiToolSpec tool : tools) {
+            allowedTools.put(tool.name(), tool);
+        }
+        return allowedTools;
+    }
+
+    private static AiToolSpec requireAllowedTool(AiToolCall call, Map<String, AiToolSpec> allowedTools) throws AiException {
+        AiToolSpec spec = allowedTools.get(call.name());
+        if (spec == null) {
+            if (AiToolRegistry.contains(call.name())) {
+                throw new AiException(AiErrorType.REQUEST, "模型请求了未启用的工具：" + call.name());
+            }
+            throw new AiException(AiErrorType.REQUEST, "模型请求了未知工具：" + call.name());
+        }
+        return spec;
     }
 
     private static void notifyToolCalls(List<AiToolExecution> executions) {
