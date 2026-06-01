@@ -45,6 +45,17 @@ public final class AiConfigStore {
         return data().imageQuality;
     }
 
+    public static synchronized AiToolPermissions autonomousToolPermissions() {
+        ConfigData data = data();
+        return new AiToolPermissions(
+                data.autonomousTools,
+                data.autonomousLocationTool,
+                data.autonomousMemoryReadTool,
+                data.autonomousMemoryWriteTool,
+                data.autonomousMemoryDeleteTool
+        );
+    }
+
     public static synchronized AiProviderSettings currentSettings() {
         ConfigData data = data();
         ProviderConfig provider = provider(data.currentProvider);
@@ -121,6 +132,23 @@ public final class AiConfigStore {
         save();
     }
 
+    public static synchronized void setAutonomousTools(boolean enabled) {
+        data().autonomousTools = enabled;
+        save();
+    }
+
+    public static synchronized void setAutonomousToolPermission(String permissionId, boolean enabled) {
+        ConfigData data = data();
+        switch (normalizeToolPermission(permissionId)) {
+            case "location" -> data.autonomousLocationTool = enabled;
+            case "memory-read" -> data.autonomousMemoryReadTool = enabled;
+            case "memory-write" -> data.autonomousMemoryWriteTool = enabled;
+            case "memory-delete" -> data.autonomousMemoryDeleteTool = enabled;
+            default -> throw new ConfigException("未知自主工具权限：" + permissionId);
+        }
+        save();
+    }
+
     public static synchronized List<String> providerIds() {
         return AiProviderRegistry.providerSuggestions(data().providers.keySet());
     }
@@ -135,7 +163,11 @@ public final class AiConfigStore {
         lines.add("AI 模式：" + (data.aiMode ? "已开启" : "已关闭"));
         lines.add("单人世界：" + (singleplayerWorld ? "是" : "否"));
         lines.add("请求状态：" + (requesting ? "处理中" : "空闲"));
-        lines.add("模型自主工具：已开启");
+        lines.add("模型自主工具：" + enabledText(data.autonomousTools));
+        lines.add("自主位置工具：" + enabledText(data.autonomousLocationTool));
+        lines.add("自主记忆读取：" + enabledText(data.autonomousMemoryReadTool));
+        lines.add("自主记忆写入：" + enabledText(data.autonomousMemoryWriteTool));
+        lines.add("自主记忆删除：" + enabledText(data.autonomousMemoryDeleteTool));
         lines.add("当前服务商：" + current.displayName + " (" + data.currentProvider + ")");
         lines.add("当前模型：" + emptyText(current.model, "未设置"));
         lines.add("当前 Base URL：" + emptyText(current.baseUrl, "未设置"));
@@ -170,6 +202,17 @@ public final class AiConfigStore {
             }
         }
         return lines;
+    }
+
+    public static synchronized List<String> autonomousToolPermissionLines() {
+        ConfigData data = data();
+        return List.of(
+                "模型自主工具：" + enabledText(data.autonomousTools),
+                "位置工具 location：" + enabledText(data.autonomousLocationTool),
+                "长期记忆读取 memory-read：" + enabledText(data.autonomousMemoryReadTool),
+                "长期记忆写入 memory-write：" + enabledText(data.autonomousMemoryWriteTool),
+                "长期记忆删除 memory-delete：" + enabledText(data.autonomousMemoryDeleteTool)
+        );
     }
 
     public static String mask(String apiKey) {
@@ -340,6 +383,24 @@ public final class AiConfigStore {
         return value == null || value.isBlank();
     }
 
+    private static String enabledText(boolean enabled) {
+        return enabled ? "已开启" : "已关闭";
+    }
+
+    private static String normalizeToolPermission(String permissionId) {
+        if (permissionId == null || permissionId.isBlank()) {
+            throw new ConfigException("自主工具权限不能为空");
+        }
+        String normalized = permissionId.trim().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+        return switch (normalized) {
+            case "location", "here", "position", "pos" -> "location";
+            case "memory-read", "memory", "read-memory" -> "memory-read";
+            case "memory-write", "remember", "write-memory" -> "memory-write";
+            case "memory-delete", "forget", "delete-memory" -> "memory-delete";
+            default -> normalized;
+        };
+    }
+
     public static class ConfigData {
         public String currentProvider = AiProviderRegistry.OPENAI_PROVIDER_ID;
         public int timeoutSeconds = AiConfigRules.DEFAULT_TIMEOUT_SECONDS;
@@ -347,6 +408,11 @@ public final class AiConfigStore {
         public String imageQuality = AiImageQuality.DEFAULT;
         public boolean streaming = false;
         public boolean aiMode = false;
+        public boolean autonomousTools = true;
+        public boolean autonomousLocationTool = false;
+        public boolean autonomousMemoryReadTool = false;
+        public boolean autonomousMemoryWriteTool = false;
+        public boolean autonomousMemoryDeleteTool = false;
         public Map<String, ProviderConfig> providers = new LinkedHashMap<>();
 
         static ConfigData defaults() {
